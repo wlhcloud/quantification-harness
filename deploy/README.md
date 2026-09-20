@@ -20,19 +20,21 @@ Python 数据/计算平面部署在服务器上训练模型，**前端仍在本�
 
 ```
 /opt/ai_project/quantification-harness/
+├── .git/                # 2026-09-20 起是个正常 git 仓库，origin -> GitHub（§4）
 ├── services/            # 三个 Python 服务源码（可编辑安装进 quant 环境）
 │   ├── quant-sync/          # 数据平面    :9101
 │   ├── quant-engine/        # 计算平面    :9102（训练 / 回测 / 因子）
 │   └── data-query-service/  # 只读查询    :9103
+├── apps/quant-web/      # React 控制台源码（本机跑 dev server）
 ├── config/              # 研究参数（stock-ml.yaml / etf-quant.yaml / ...）
 ├── contracts/           # OpenAPI 契约 + meta.sql DDL
 ├── scripts/             # 研究/回填/每日链脚本
-├── artifacts/           # 模型与回测产物（stock-ml / etf）
-├── data/                # SQLite 数据库（见下）
+├── artifacts/           # 模型与回测产物（stock-ml / etf）—— 不入库
+├── data/                # SQLite 数据库（见下）—— 不入库
 ├── docs/                # 架构与运维文档
-├── logs/                # screen 服务的输出日志
+├── logs/                # screen 服务的输出日志 —— 不入库
 ├── deploy/              # 本次部署资产（本目录）
-└── .quant.env           # 密钥（ASCII + CRLF，权限 600）
+└── .quant.env           # 密钥（ASCII + CRLF，权限 600）—— 不入库
 ```
 
 ### 数据文件
@@ -127,15 +129,56 @@ bash deploy/screen-down.sh && bash deploy/screen-up.sh
 Python 源码改动无需重新安装（可编辑安装）。**改了 `pyproject.toml` 依赖**才需要重跑
 `install.sh`。
 
-> ⚠️ 重跑 `install.sh` 或重新同步仓库会**覆盖** `config/stock-ml.yaml`，
-> 把 `deviceType` 改回 `cuda` → 训练内存翻倍并可能 OOM（原因见 §7）。改完请复查：
-> `grep deviceType config/stock-ml.yaml` 必须是 `cpu`。
+### 用 git 同步代码（2026-09-20 起）
+
+服务器上的部署目录现在是**一个正常的 git 仓库**，`origin` 指向 GitHub，可以直接
+`git pull` 更新代码，不必再手工 rsync/覆盖。
+
+```bash
+cd /opt/ai_project/quantification-harness
+
+git pull --ff-only          # 更新代码（工作区应保持干净）
+git log --oneline -3        # 看拉到哪个提交
+git status --porcelain      # 应为空；非空说明有人在本机改过代码
+
+# 改完重启对应服务（Python 是可编辑安装，但进程需要重启才会加载新代码）
+bash deploy/screen-down.sh engine && bash deploy/screen-up.sh engine
+bash deploy/screen-status.sh          # 会话 + 端口 + 健康检查
+```
+
+| 项 | 值 |
+|---|---|
+| remote | `git@github.com:wlhcloud/quantification-harness.git`（SSH，不是 HTTPS） |
+| 凭据 | `~/.ssh/config` 里 `Host github.com` → `IdentityFile ~/.ssh/github_deploy` |
+| 权限 | **只读**：`git fetch` / `git pull` 可用；`git push` 会被拒（见下） |
+| `core.fileMode` | `false`（忽略权限位差异，与 Windows 开发机一致） |
+
+**关于推送**：`github_deploy` 是只读凭据，`git push` 会报
+`ERROR: Permission to ... denied to deploy key`。生产机只拉取不推送是更安全的默认，
+建议保持。确实需要从服务器推送时才去开启写权限：
+
+> GitHub → 仓库 → **Settings → Deploy keys** → 对应 key → 勾选
+> **Allow write access**。
+
+**注意两个"改了会出问题"的点**：
+
+- **行尾**：`.gitattributes` 强制 `data/start-910*.bat` 与 `.quant.env` 检出为 CRLF
+  （cmd 的 `for /f` 解析密钥文件的要求）。别在服务器上用编辑器保存这些文件——
+  保存成 LF 会让 `QUANT_API_KEY` 被静默漏读，服务照常启动但写接口鉴权失效。
+- **执行位**：`deploy/*.sh` 在仓库里记的是 `100755`，clone/pull 即带执行位。
+  如果哪天又出现 `deploy/run-service.sh: Permission denied`（9102 起不来），
+  先确认 `git ls-files -s deploy/ | grep 755` 正常，再 `chmod +x deploy/*.sh` 应急。
+
+> ✅ **2026-09-20 起，仓库与服务器共用同一份 `config/stock-ml.yaml`**：
+> `deviceType: cuda` + `cudaInProcess: true`。此前服务器必须手工改成 `cpu` 才能避开
+> 「隔离进程」路径的双份内存（见 §7.1）；`cudaInProcess` 落地后这个分歧已消除，
+> 重跑 `install.sh` / 同步仓库不再需要事后改配置。
 
 ## 5. 已安装的关键包（实测）
 
 | 包 | 版本 |
 |---|---|
-| lightgbm | 4.7.0（**源码编译的 CUDA 版**，见 §7.5；跑训练时仍配 `deviceType: cpu`） |
+| lightgbm | 4.7.0（**源码编译的 CUDA 版**，见 §7.5；配 `cudaInProcess: true` 进程内训练） |
 | numpy | 2.5.3 |
 | pandas | 2.3.3 |
 | pyarrow | 20.0.0 |
@@ -146,8 +189,9 @@ Python 源码改动无需重新安装（可编辑安装）。**改了 `pyproject
 | cryptography | 49.0.0 |
 | pytest / httpx / ruff | 9.1.1 / 0.28.1 / 0.16.8 |
 
-全部满足各 `pyproject.toml` 的版本约束。测试套件在 Python 3.12 下全绿：
-**quant-engine 146 / quant-sync 60 / data-query 9 = 215 passed，0 failed**。
+全部满足各 `pyproject.toml` 的版本约束。测试套件在 Python 3.12 下全绿（2026-09-20 复核）：
+**quant-engine 153 / quant-sync 61 / data-query 15 = 229 passed，0 failed**
+（`OK (skipped=1)`：无 `.quant.env` 时跳过密钥文件检查）。
 
 ## 6. 配置面
 
@@ -170,38 +214,52 @@ Python 源码改动无需重新安装（可编辑安装）。**改了 `pyproject
 `QUANT_SYNC_PROJECT_ROOT` / `QUANT_ENGINE_PROJECT_ROOT` / `DATA_QUERY_PROJECT_ROOT`
 作为双保险。
 
-### 服务器与仓库的一处配置差异
+### 服务器与仓库的配置已收敛（2026-09-20）
 
-| 文件 | 仓库（Windows） | 服务器 | 原因 |
+| 文件 | 仓库（Windows） | 服务器 | 说明 |
 |---|---|---|---|
-| `config/stock-ml.yaml` → `model.deviceType` | `cuda` | **`cpu`** | 见 §7，`cuda` 在 Linux 上会触发内存翻倍的隔离进程路径 |
+| `config/stock-ml.yaml` → `model.deviceType` | `cuda` | **`cuda`** | 已一致 |
+| `config/stock-ml.yaml` → `model.cudaInProcess` | `true` | **`true`** | 已一致 |
+
+历史上这里有一行差异（服务器 `cpu` / 仓库 `cuda`），原因是 Linux 上 `deviceType: cuda`
+会走「pickle 落盘 + spawn 子进程」的隔离路径、内存翻倍。该问题已由
+`model.cudaInProcess: true` 从根上解决（见 §7.1），两处配置因此收敛为同一份。
 
 ## 7. 训练模型
 
-### 7.1 为什么服务器上必须是 `deviceType: cpu`
+### 7.1 隔离进程路径与 `cudaInProcess`（已解决，勿再改回）
 
-`stock_ml/__init__.py` 里有一条仅在 Linux 生效的分支：
+`stock_ml/__init__.py` 里有一条仅在 Linux 生效的历史分支：
 
 ```python
 use_isolated_cuda = (sys.platform.startswith("linux") and
-                     str(model_cfg.get("deviceType", "cpu")).lower() in {"cuda", "gpu"})
+                     str(model_cfg.get("deviceType", "cpu")).lower() in {"cuda", "gpu"} and
+                     not bool(model_cfg.get("cudaInProcess", False)))
 ```
 
-`deviceType: cuda` 时它会：
+`deviceType: cuda` **且** `cudaInProcess: false` 时它会：
 1. 把整个训练帧 `pickle.dump` 落盘（全量历史实测约 **2.2 GB**，缩量测试约 960 MB）；
 2. `multiprocessing spawn` 一个子进程；
 3. 子进程再把这份帧 `pickle.load` 回内存 → **同一份数据在内存里存在两份**；
 4. 然后在子进程里训练。
 
-第 3 步是致命的：帧本身约 19 GB，加上子进程的副本接近 40 GB，
-在共享服务器上直接触发 OOM（见 §7.3）。
+第 3 步是致命的：帧本身约 19 GB，加上子进程的副本接近 40 GB，在共享服务器上直接
+触发 OOM（见 §7.3）。而且这个隔离路径**本身很慢**：2.4 GB pickle 往返 + spawn +
+帧转换的开销成了瓶颈，掩盖了 GPU 的真实速度。
 
-`deviceType: cpu` 则走 `etf_ranker.train_ranker(...)` **进程内训练**：不落盘、不 spawn、
-不复制，峰值内存只有一份帧。这是本环境的正确配置。
+**2026-09-20 起改用 `model.cudaInProcess: true`**：CUDA 走
+`etf_ranker.train_ranker(...)` **进程内训练**——不落盘、不 spawn、不复制，
+峰值内存只有一份帧，且真正在 GPU 上算。实测（150 棵 / 41 万行）**4.3 s vs CPU 104 s**。
 
-> 注意：2026-09-18 之后 CUDA 版 LightGBM **已经装好了**，所以第 4 步不再回退 CPU，
-> 而是真的在 GPU 上训练。但由于 GPU 反而更慢（§7.5），**`deviceType: cpu` 仍是正确选择** ——
-> 现在的理由是"更快 + 省一半内存"，不再是"没有 CUDA 版"。
+因此：
+- 服务器与仓库共用 `deviceType: cuda` + `cudaInProcess: true`，不再需要每台机器单独改配置；
+- §7.5 里"CUDA 比 CPU 慢"的结论**测的是隔离路径**，已被进程内路径推翻，仅作历史记录保留；
+- `cudaInProcess` 是要害开关：**如果它被改回 `false`，Linux 上会立刻退回双份内存 + 慢路径**。
+  `stock_ml/__init__.py` 的 `engineVersion` 里有 `cudaInProcessSwitch: True` 标记，
+  配置回显（`/api/v1/stock-ml/config`）也会回报 `deviceType` 与 `cudaInProcess` 便于核对。
+
+> 单一事实来源提醒：`cudaInProcess` 与 `deviceType` 属于 §6 的「研究参数（面 4）」，
+> 由 `config/*.yaml` 决定，不要在代码里再放一份会悄悄生效的默认值。
 
 
 ### 7.2 实测训练结果（2026-09-18）
@@ -364,7 +422,10 @@ CMAKE_BUILD_PARALLEL_LEVEL=6 \
 放大到全量历史（引擎侧约 19–20 GB）后，CUDA 路径的总需求约 **34–39 GB**，
 正是 2026-09-18 那次 OOM 的原因（当时可用内存只剩 ~11 GB）。
 
-**结论：服务器保持 `config/stock-ml.yaml` 的 `deviceType: cpu`。**
+**历史结论（2026-09-18）：当时服务器保持 `deviceType: cpu`。**
+该结论测的是「隔离进程路径 vs 进程内 CPU」，而隔离路径的开销（pickle 往返 + spawn）
+才是真凶 —— 见 §7.1。2026-09-20 起改为 `cuda` + `cudaInProcess: true`（进程内 CUDA），
+上述表格仅作为"隔离路径有多贵"的实测证据保留。
 CUDA 版装好留着，等数据量大幅增长后再评估；真要切回时，务必先确认共享机器有 ≥40 GB 可用内存。
 
 > `cpuFallback: true` 依旧有效：即使把 `deviceType` 写成 `cuda`，在没有 CUDA 版 LightGBM 的
@@ -418,8 +479,8 @@ npm run dev          # http://127.0.0.1:3082
 | 端口被占 | `fuser -k -TERM -n tcp 9102`；或 `bash deploy/screen-down.sh engine` |
 | **服务整个消失、日志无异常** | **大概率被 OOM killer 杀了**：`dmesg -T \| grep -i "killed process"`；恢复用 `bash deploy/screen-up.sh` |
 | job 报 `worker process restarted before completion` | 父进程在训练中途死了（通常就是 OOM）；同一条报错在本机历史上也反复出现过 |
-| 训练内存异常大 | `grep deviceType config/stock-ml.yaml` 必须是 `cpu`（见 §7.1） |
-| 训练回退到 CPU | `deviceType: cpu` 时这是预期行为 |
+| 训练内存异常大 / OOM | 检查 `grep -E "deviceType\|cudaInProcess" config/stock-ml.yaml` 必须是 `cuda` + `true`（见 §7.1）；`cudaInProcess: false` 会退回双份内存的隔离路径 |
+| 训练实际跑在 CPU 上 | 看运行结果里的 `effectiveDevice`：`deviceType: cuda` 时它应为 `cuda`；若为 `cpu` 说明 CUDA 版 LightGBM 没装好（`cpuFallback` 静默回退了） |
 | 界面进度长时间停在 0% | 窗口 1 的因子帧加载阶段不上报进度（约 5 分钟），属正常 |
 | screen 会话莫名消失 | 会话内进程退出了；日志在 `logs/`，`screen -r` 可看到退出原因 |
 | `sync.db` 里 `rt_idx_k` / `rt_idx_min` 大量 `error` | **既有上游问题，不是部署问题**（见下） |
@@ -448,5 +509,6 @@ npm run dev          # http://127.0.0.1:3082
    `TypeError`（3.13 起 `threading.Lock` 才是类型，之前是工厂函数），导致
    `quant_engine.main` 无法导入、服务起不来。仓库声明 `requires-python = ">=3.11"`，
    所以这是个真实缺陷；仓库里另外 61 个文件已经用了这个 future import，属同一约定。
-2. **`config/stock-ml.yaml`（仅服务器）** — `model.deviceType` 由 `cuda` 改为 `cpu`，
-   原因见 §7.1。本机仓库保持 `cuda` 不变（Windows 不走隔离进程分支）。
+2. **`config/stock-ml.yaml`（曾仅服务器）** — 历史上曾把 `model.deviceType` 由 `cuda`
+   改为 `cpu` 以避开隔离进程路径（原因见 §7.1）。**2026-09-20 起此差异已消除**：
+   `cudaInProcess: true` 落地后仓库与服务器共用 `cuda`，不再有"仅服务器"的配置改动。
