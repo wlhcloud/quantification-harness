@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..stock_ml.config_integrity import load_config_json, stamp_run_config
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stock_sim_runs (
   run_id TEXT PRIMARY KEY,
@@ -31,7 +33,15 @@ CREATE TABLE IF NOT EXISTS stock_sim_runs (
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
   last_signal_date TEXT,
-  last_nav REAL
+  last_nav REAL,
+  -- 配置可观测性（2026-09-20）：完整生效配置 + 指纹 + 代码版本。
+  -- 此前只有下面那些扁平标量列，featuresOverride/publishGate/technicalTiming
+  -- 等都没存，导致"这个模拟盘当初到底按什么配置跑的"无法重建。
+  config_json TEXT,
+  config_sha256 TEXT,
+  config_yaml_sha256 TEXT,
+  git_commit TEXT,
+  git_dirty INTEGER
 );CREATE TABLE IF NOT EXISTS stock_sim_daily (
   run_id TEXT NOT NULL,
   signal_date TEXT NOT NULL,
@@ -94,6 +104,13 @@ def ensure_schema(con: sqlite3.Connection) -> None:
         ("initial_stop_loss", f"REAL NOT NULL DEFAULT {TAIL_INITIAL_STOP_PCT}"),
         ("trailing_drawdown", f"REAL NOT NULL DEFAULT {TAIL_TRAILING_PCT}"),
         ("last_rebalance_date", "TEXT"),
+        # 配置可观测性：旧 run 这几列为 NULL = "该次运行早于档案机制"（未知），
+        # 不是"没有配置"——它们当时用的是上面那些标量列的默认值。
+        ("config_json", "TEXT"),
+        ("config_sha256", "TEXT"),
+        ("config_yaml_sha256", "TEXT"),
+        ("git_commit", "TEXT"),
+        ("git_dirty", "INTEGER"),
     ):
         if name not in cols:
             con.execute(f"ALTER TABLE stock_sim_runs ADD COLUMN {name} {ddl}")
@@ -241,7 +258,7 @@ def list_runs(factors_path: Path, include_archived: bool = False) -> dict[str, A
     try:
         ensure_schema(con)
         sql = ("SELECT run_id, model_id, top_n, initial_capital, regime_filter,execution_mode,status, created_at, "
-               "last_signal_date, last_nav FROM stock_sim_runs")
+               "last_signal_date, last_nav, config_json, config_sha256, git_commit, git_dirty FROM stock_sim_runs")
         params: tuple = ()
         if not include_archived:
             sql += " WHERE status<>'archived'"
@@ -258,6 +275,12 @@ def list_runs(factors_path: Path, include_archived: bool = False) -> dict[str, A
                 "executionMode": r["execution_mode"], "legacy": r["execution_mode"] != "same_day_close",
                 "status": r["status"], "createdAt": r["created_at"],
                 "lastSignalDate": r["last_signal_date"], "lastNav": r["last_nav"],
+                # 配置可观测性：完整生效配置 + 指纹 + 代码版本。
+                # 旧 run 这几列为 NULL = 早于档案机制（未知），别读成"没有配置"。
+                "config": load_config_json(r["config_json"]),
+                "configSha256": r["config_sha256"],
+                "gitCommit": r["git_commit"],
+                "gitDirty": None if r["git_dirty"] is None else bool(r["git_dirty"]),
                 "navSeries": [{"tradeDate": x["trade_date"], "nav": x["nav"]} for x in dailies],
             })
         return {"items": items}
@@ -273,7 +296,19 @@ def start_sim(factors_path: Path, model_id: str = "balanced", top_n: int = 30,
               regime_filter: bool = False, rebalance_days: int = DEFAULT_REBALANCE_DAYS,
               holding_buffer_rank: int | None = None,
               initial_stop_loss: float = TAIL_INITIAL_STOP_PCT,
-              trailing_drawdown: float = TAIL_TRAILING_PCT) -> dict[str, Any]:
+              trailing_drawdown: float = TAIL_TRAILING_PCT,
+              snapshot_root: Path | None = None,
+              source_config: dict[str, Any] | None = None,
+              source_config_path: Path | None = None) -> dict[str, Any]:
+    """创建模拟盘 run。
+
+    ``snapshot_root`` 是配置快照的归档根（通常是 ``artifacts``）；为 None 时只写
+    数据库档案、不落快照文件。
+
+    ``source_config`` / ``source_config_path`` 是本次参数的来源配置（ML 模拟盘为
+    ``stock-ml.yaml`` 的完整内容）。模拟盘的 topN、止损、择时开关都派生自它，只把
+    解析后的数字写进各标量列，事后无法回答"这些数字是哪份配置给的"——因此整份冻结。
+    """
     con = connect(factors_path)
     try:
         ensure_schema(con)
@@ -286,15 +321,42 @@ def start_sim(factors_path: Path, model_id: str = "balanced", top_n: int = 30,
                 "无法建立模拟盘；请先运行该模型的选股/训练任务"
             )
         run_id = f"stock-sim-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+        effective_config = {
+            "kind": "stock_sim",
+            "modelId": model_id,
+            "topN": top_n,
+            "initialCapital": initial_capital,
+            "commissionRate": commission_rate,
+            "stampDutyRate": stamp_duty_rate,
+            "slippageRate": slippage_rate,
+            "regimeFilter": bool(regime_filter),
+            "rebalanceDays": max(1, rebalance_days),
+            # 实际写入表的生效值（holding_buffer_rank 为空时按 topN 取，与下表一致）
+            "holdingBufferRank": max(top_n, holding_buffer_rank or top_n),
+            "initialStopLoss": initial_stop_loss,
+            "trailingDrawdown": trailing_drawdown,
+            "executionMode": "same_day_close",
+            "signalDate": signal["signalDate"],
+        }
+        if source_config is not None:
+            # 冻结来源配置全文：模拟盘参数由它派生，缺了它就无法复核参数从何而来。
+            effective_config["sourceConfig"] = source_config
+        columns: dict[str, Any] = {}
+        stamp_run_config(con, columns, effective_config, run_id=run_id,
+                         generated_at=_now(), snapshot_root=snapshot_root,
+                         yaml_path=source_config_path)
         con.execute(
             "INSERT INTO stock_sim_runs (run_id, model_id, top_n, initial_capital, commission_rate, "
             "stamp_duty_rate, slippage_rate, execution_mode, status, created_at, last_signal_date, last_nav, regime_filter,"
-            "rebalance_days,holding_buffer_rank,initial_stop_loss,trailing_drawdown,last_rebalance_date) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "rebalance_days,holding_buffer_rank,initial_stop_loss,trailing_drawdown,last_rebalance_date,"
+            "config_json,config_sha256,config_yaml_sha256,git_commit,git_dirty) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, model_id, top_n, initial_capital, commission_rate, stamp_duty_rate,
              slippage_rate, "same_day_close", "active", _now(), None, 1.0, 1 if regime_filter else 0,
              max(1, rebalance_days), max(top_n, holding_buffer_rank or top_n), initial_stop_loss,
-             trailing_drawdown, None),
+             trailing_drawdown, None,
+             columns["config_json"], columns["config_sha256"], columns["config_yaml_sha256"],
+             columns["git_commit"], columns["git_dirty"]),
         )
         con.execute(
             "INSERT INTO stock_sim_daily (run_id, signal_date, trade_date, nav, cash, market_value, "
@@ -539,6 +601,11 @@ def sim_status(factors_path: Path, run_id: str | None = None) -> dict[str, Any]:
             "position_count positionCount, note FROM stock_sim_daily WHERE run_id=? "
             "ORDER BY rowid DESC LIMIT 1", (row["run_id"],)).fetchone()
         run = dict(row)
+        # 配置可观测性：原始 config_json 列对使用者不友好，这里解析成对象并附指纹。
+        run["config"] = load_config_json(row["config_json"])
+        run["configSha256"] = row["config_sha256"]
+        run["gitCommit"] = row["git_commit"]
+        run["gitDirty"] = None if row["git_dirty"] is None else bool(row["git_dirty"])
         return {"run": run, "positions": positions, "latest": dict(last) if last else None,
                 "totalReturn": round((float(row["last_nav"]) - 1.0), 6) if row["last_nav"] is not None else None}
     finally:

@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..stock_ml.config_integrity import load_config_json, stamp_run_config
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS etf_sim_runs (
   run_id TEXT PRIMARY KEY,
@@ -23,7 +25,15 @@ CREATE TABLE IF NOT EXISTS etf_sim_runs (
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
   last_signal_date TEXT,
-  last_nav REAL
+  last_nav REAL,
+  -- 配置可观测性（2026-09-20）：完整生效配置 + 指纹 + 代码版本。
+  -- 此前只有 initial_capital/commission_rate 两个标量列，"这个模拟盘当时按什么跑"
+  -- 无法完整重建（信号来源 run、起点、成本口径都散落或缺失）。
+  config_json TEXT,
+  config_sha256 TEXT,
+  config_yaml_sha256 TEXT,
+  git_commit TEXT,
+  git_dirty INTEGER
 );
 CREATE TABLE IF NOT EXISTS etf_sim_daily (
   run_id TEXT NOT NULL,
@@ -53,6 +63,13 @@ DEFAULT_COMMISSION = 0.0002  # 万2
 
 def ensure_schema(con: sqlite3.Connection) -> None:
     con.executescript(SCHEMA)
+    # 零破坏迁移：旧表补配置档案列（旧 run 保持 NULL = 早于档案机制，属未知）。
+    cols = {r[1] for r in con.execute("PRAGMA table_info(etf_sim_runs)")}
+    for name in ("config_json", "config_sha256", "config_yaml_sha256", "git_commit"):
+        if name not in cols:
+            con.execute(f"ALTER TABLE etf_sim_runs ADD COLUMN {name} TEXT")
+    if "git_dirty" not in cols:
+        con.execute("ALTER TABLE etf_sim_runs ADD COLUMN git_dirty INTEGER")
 
 
 def _now() -> str:
@@ -135,19 +152,42 @@ def start_sim(
     initial_capital: float = DEFAULT_CAPITAL,
     start_date: str | None = None,
     commission_rate: float = DEFAULT_COMMISSION,
+    snapshot_root: Path | None = None,
 ) -> dict[str, Any]:
-    """创建模拟盘 run。起点默认取最新信号的因子日；当前信号为空仓则全现金起步。"""
+    """创建模拟盘 run。起点默认取最新信号的因子日；当前信号为空仓则全现金起步。
+
+    ``snapshot_root`` 是配置快照的归档根（通常是 ``artifacts``）；为 None 时只写
+    数据库档案、不落快照文件。
+    """
     signal = latest_signal(etf_db_path)
     start = start_date or signal["signalDate"] or datetime.now().strftime("%Y%m%d")
     run_id = f"etf-sim-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
     con = connect(etf_db_path)
     try:
         ensure_schema(con)
+        # 生效配置：模拟盘自身参数 + 它跟踪的信号来源 run（同源信息，缺了就无法复核
+        # "这个盘当初跟着哪次 walkforward"）。
+        effective_config = {
+            "kind": "etf_sim",
+            "initialCapital": initial_capital,
+            "startDate": start,
+            "commissionRate": commission_rate,
+            "stampDutyRate": 0.0,  # ETF 免印花税
+            "signalRunId": signal["runId"],
+            "signalDate": signal["signalDate"],
+            "bearRegime": bool(signal["bearRegime"]),
+        }
+        columns: dict[str, Any] = {}
+        stamp_run_config(con, columns, effective_config, run_id=run_id,
+                         generated_at=_now(), snapshot_root=snapshot_root)
         con.execute(
             "INSERT INTO etf_sim_runs (run_id, initial_capital, start_date, commission_rate, status, created_at, "
-            "last_signal_date, last_nav) VALUES (?,?,?,?,?,?,?,?)",
+            "last_signal_date, last_nav, config_json, config_sha256, config_yaml_sha256, git_commit, git_dirty) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             # last_signal_date 留空：起点尚未建仓，首个 advance 必须允许执行（否则被幂等判断挡成 waiting）
-            (run_id, initial_capital, start, commission_rate, "active", _now(), None, 1.0),
+            (run_id, initial_capital, start, commission_rate, "active", _now(), None, 1.0,
+             columns["config_json"], columns["config_sha256"], columns["config_yaml_sha256"],
+             columns["git_commit"], columns["git_dirty"]),
         )
         con.execute(
             "INSERT INTO etf_sim_daily (run_id, trade_date, nav, cash, market_value, position_count, bear_regime, note) "
@@ -312,8 +352,14 @@ def sim_status(etf_db_path: Path, run_id: str | None = None) -> dict[str, Any]:
             "SELECT trade_date tradeDate, nav, cash, market_value marketValue, position_count positionCount, "
             "bear_regime bearRegime, note FROM etf_sim_daily WHERE run_id=? ORDER BY trade_date DESC LIMIT 1",
             (row["run_id"],)).fetchone()
+        run = dict(row)
+        # 配置可观测性：解析原始 config_json 并附指纹（旧 run 为 NULL = 早于档案机制）。
+        run["config"] = load_config_json(row["config_json"])
+        run["configSha256"] = row["config_sha256"]
+        run["gitCommit"] = row["git_commit"]
+        run["gitDirty"] = None if row["git_dirty"] is None else bool(row["git_dirty"])
         return {
-            "run": dict(row),
+            "run": run,
             "positions": positions,
             "latest": dict(last) if last else None,
             "totalReturn": round((float(row["last_nav"]) - 1.0), 6) if row["last_nav"] else None,

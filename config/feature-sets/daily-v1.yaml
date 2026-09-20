@@ -1,8 +1,19 @@
+# ⚠️ 文档性配置，**当前没有任何代码读取这个文件**。
+#
+# `config/{feature-sets,training,backtest}` 三个目录是早期设计稿（status 多为 draft）。
+# 2026-09-20 审计确认：`quant_engine/pipeline.py` 只按**字面 id** 工作
+# （输出 `features/daily-v1.parquet`、默认 `modelId="lightgbm-t1"`），从不加载本文件。
+# 所以下面这些值**不生效**，改它们不会有任何影响。
+#
+# 保留原因：它们是这些 id 的意图说明，将来真要把配置外置时是起点。
+# 保留代价：**已经发生漂移**——本文件声明的 features 与 pipeline.py 实际使用的
+# FEATURE_COLUMNS 并不一致（那份才是真实特征集）。
+# 结论：**不要照此文件推断线上行为**；要启用就先接进代码并加测试断言，否则删除。
 id: daily-v1
 version: 1
 frequency: daily
 source: market.daily_bars
-status: active
+status: draft
 label: t1_open_close_return
 features:
   - momentum5

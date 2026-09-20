@@ -91,6 +91,10 @@ Node 退出一切数据写入与计算，只保留 DSH Agent 编排；上游同�
 - `contracts/schemas/job.schema.json`：job 结构（沿用）。
 - 新增：`contracts/openapi/quant-sync.yaml`、`contracts/openapi/data-query.yaml`（同步/查询接口契约）。
 - 模型配置统一：`config/factor-models.yaml`（选股/回测用）+ `config/{feature-sets,training,backtest}`（引擎用）。
+  > ⚠️ **2026-09-20 更正**：`feature-sets/` 与 `training/` **从未接进代码**——
+  > `pipeline.py` 只按字面 id（`daily-v1` / `lightgbm-t1`）工作，不加载这两个目录下的文件。
+  > 只有 `backtest/t1-default.yaml` 是活的（`main.py` 的回测 handler 会加载）。
+  > 详见 `docs/configuration.md` 的"活配置 vs 文档性配置"。
   > 2026-09-18 变更：legacy 因子选股（balanced / quality_value / trend_momentum / low_volatility /
   > alpha_aggressive）退役，`factor-models.yaml` 的 `models` 只剩 `ml_walkforward`（weights 为空，
   > 仅作登记；真实信号由 `stock_walkforward` 写入 `selection_candidates`）。`filters`/`factors` 保留，

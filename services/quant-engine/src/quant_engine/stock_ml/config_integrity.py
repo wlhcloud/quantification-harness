@@ -58,6 +58,11 @@ from typing import Any
 SNAPSHOT_DIRNAME = "config-snapshots"
 BUILD_INFO_FILENAME = ".build-info.json"
 
+# 配置档案的 schema 版本。写入方变更结构时必须递增，读取方据此判断怎么解析——
+# 没有这个标记，格式演进后旧档案会被静默误读。
+#   1 = 2026-09-20 起：stock_ml walkforward / 股票模拟盘 / ETF 模拟盘统一采用。
+CONFIG_SCHEMA_VERSION = 1
+
 # 服务启动时解析一次的构建信息（见模块 docstring 的说明）。
 _GIT_INFO: dict[str, Any] | None = None
 
@@ -96,6 +101,23 @@ def file_sha256(path: Path) -> str | None:
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def load_config_json(raw: Any) -> dict[str, Any]:
+    """把 ``config_json`` 列安全解析成 dict。
+
+    坏数据/旧列的容错点集中在这里：读取方不该因为一条脏记录就整体 500。
+    空值返回 ``{}``，语义是"没有档案"，与"有档案但内容为空"由指纹列区分。
+    """
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _detect_repo_root() -> Path | None:
@@ -194,6 +216,52 @@ def build_fingerprint(effective: dict[str, Any], yaml_path: Path | None = None) 
     }
 
 
+def stamp_run_config(
+    con: Any,
+    columns: dict[str, Any],
+    effective: dict[str, Any],
+    *,
+    run_id: str | None = None,
+    generated_at: str | None = None,
+    yaml_path: Path | None = None,
+    yaml_text: str | None = None,
+    snapshot_root: Path | None = None,
+) -> dict[str, Any]:
+    """给运行记录生成并落库配置档案，返回可并入运行行的列。
+
+    所有运行族（walk-forward、股票/ETF 模拟盘）共用这一个入口，保证
+    "每个模型都有独立且完整的配置"是可查询、可追溯的同一件事，而不是
+    每个族各写一套、字段名和语义各自漂移。
+
+    ``columns`` 是调用方要写入的列名映射（已排除本函数负责的字段），例如::
+
+        columns = {"config_json": ..., "config_sha256": ..., "git_commit": ..., "git_dirty": ...}
+
+    返回其中已填充的 ``config_json`` 与指纹列。
+    """
+    fingerprint = build_fingerprint(effective, yaml_path)
+    # 给了 yaml_path 就把原文一并归档：只存哈希的话，日后无从还原当时那份配置的内容。
+    if yaml_text is None and yaml_path is not None:
+        try:
+            yaml_text = Path(yaml_path).read_text(encoding="utf-8")
+        except OSError:
+            yaml_text = None
+    # schema 版本与生效配置一起存：格式演进后读取方才能判断怎么解析旧档案。
+    columns["config_json"] = json.dumps(
+        {**effective, "configSchemaVersion": CONFIG_SCHEMA_VERSION},
+        ensure_ascii=False, sort_keys=True)
+    columns["config_sha256"] = fingerprint["effectiveConfigSha256"]
+    columns["config_yaml_sha256"] = fingerprint.get("yamlSha256")
+    columns["git_commit"] = fingerprint.get("gitCommit")
+    columns["git_dirty"] = (None if fingerprint.get("gitDirty") is None
+                            else int(bool(fingerprint["gitDirty"])))
+    record_fingerprint(con, fingerprint, effective, run_id=run_id,
+                       yaml_text=yaml_text, generated_at=generated_at)
+    if snapshot_root is not None:
+        write_snapshot(snapshot_root, fingerprint, effective, run_id=run_id, yaml_text=yaml_text)
+    return fingerprint
+
+
 def ensure_schema(con: Any) -> None:
     """幂等建表。"""
     con.executescript(SCHEMA)
@@ -231,19 +299,22 @@ def record_fingerprint(
 
 
 def write_snapshot(
-    artifact_dir: Path,
+    snapshot_root: Path,
     fingerprint: dict[str, Any],
     effective: dict[str, Any],
     *,
     run_id: str | None = None,
     yaml_text: str | None = None,
 ) -> Path:
-    """内容寻址归档：``<artifact_dir>/config-snapshots/<sha256>/``。
+    """内容寻址归档：``<snapshot_root>/config-snapshots/<sha256>/``。
 
     哈希相同则不重写（快照天然幂等）。返回快照目录。
+
+    **快照根由调用方决定，且各运行族应指向同一个根**（通常是 ``artifacts``）：
+    档案的价值在于"一处就能回答任何运行的配置"，按族拆成多份会让这个查询重新碎片化。
     """
     sha = fingerprint["effectiveConfigSha256"]
-    target = Path(artifact_dir) / SNAPSHOT_DIRNAME / sha
+    target = Path(snapshot_root) / SNAPSHOT_DIRNAME / sha
     target.mkdir(parents=True, exist_ok=True)
     (target / "config.json").write_text(
         json.dumps(effective, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")

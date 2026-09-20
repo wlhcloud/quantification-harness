@@ -453,7 +453,9 @@ async def stock_ml_predict(request: Request) -> dict:
 
 @app.post("/api/v1/etf-quant/sim/start")
 def etf_sim_start(initial_capital: float = Query(1_000_000), start_date: str | None = Query(None)) -> dict:
-    return etf_sim.start_sim(settings.etf_quant_db_path, settings.market_path, initial_capital, start_date)
+    # snapshot_root=artifacts：与 stock_ml/股票模拟盘共用同一个内容寻址配置档案库。
+    return etf_sim.start_sim(settings.etf_quant_db_path, settings.market_path, initial_capital,
+                             start_date, snapshot_root=settings.artifact_dir)
 
 
 @app.post("/api/v1/etf-quant/sim/advance")
@@ -517,9 +519,16 @@ def _stock_sim_start(model: str, top_n: int, initial_capital: float, regime_filt
                                    rebalance_days=int(bt.get("rebalanceDays", 3)),
                                    holding_buffer_rank=int(bt.get("holdingBufferRank", 10)),
                                    initial_stop_loss=float(bt.get("initialStopLoss", 0.05)),
-                                   trailing_drawdown=float(bt.get("trailingDrawdown", 0.08)))
+                                   trailing_drawdown=float(bt.get("trailingDrawdown", 0.08)),
+                                   snapshot_root=settings.artifact_dir,
+                                   # ML 模拟盘的参数全部来自 stock-ml.yaml，因此必须把那份
+                                   # YAML 一起冻结：否则只记下解析出的几个数字，无法回答
+                                   # "当时那个 topN/止损/择时开关是哪份配置给的"。
+                                   source_config=cfg,
+                                   source_config_path=settings.stock_ml_config_path)
     return stock_sim.start_sim(settings.factors_path, model, top_n, initial_capital,
-                               regime_filter=regime_filter)
+                               regime_filter=regime_filter,
+                               snapshot_root=settings.artifact_dir)
 
 
 @app.post("/api/v1/stock/sim/advance")

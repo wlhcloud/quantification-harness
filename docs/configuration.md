@@ -10,6 +10,26 @@
 | 3 | **运行时可改配置** | `data/sync-config.json` | quant-sync（`PUT /api/v1/sync/config` 写入） | 立即（部分项重启调度线程/下一段同步生效） |
 | 4 | **研究参数** | `config/*.yaml`（`stock-ml.yaml` / `etf-quant.yaml` / `factor-models.yaml` / `backtest/t1-default.yaml`） | quant-engine（回测、训练、选股口径）+ data-query（只读选股/诊断） | 下一次 job 运行（`factor-models.yaml` 与 9103 的读取是每请求热加载） |
 
+### ⚠️ `config/` 下有"活配置"和"文档性配置"，别混
+
+不是 `config/` 里每个 yaml 都生效。2026-09-20 审计确认：
+
+| 文件 | 状态 | 谁读它 |
+|---|---|---|
+| `stock-ml.yaml` | ✅ 活 | 15 个源文件（股票 ML 全链路权威配置） |
+| `factor-models.yaml` | ✅ 活 | 6 个源文件（模型登记 + 配置完整性校验） |
+| `etf-quant.yaml` | ✅ 活 | ETF 量化链路 |
+| `backtest/t1-default.yaml` | ✅ 活 | `main.py` 的回测 handler 加载它作默认值 |
+| `feature-sets/daily-v1.yaml` | ❌ **代码不读** | `pipeline.py` 只用字面 id `daily-v1`，不加载文件 |
+| `feature-sets/minute-v1.yaml` | ❌ **代码不读** | 从未落地（分钟线已停用） |
+| `training/lightgbm-t1.yaml` | ❌ **代码不读** | `pipeline.py` 用字面 `modelId="lightgbm-t1"` |
+
+**代码不读 ≠ 无害**：`training/lightgbm-t1.yaml` 声明 `label: t1_close_return`，而代码实际
+计算的是 `t1_open_close_return`（`next_close/next_open - 1`）——**已经漂移**。这三个文件
+已在文件头显式标注"文档性配置、不生效、不要据此推断线上行为"，避免有人照着改却毫无效果
+（这正是本文件开头说的"改了其中一个以为生效了"的经典形态）。
+
+
 > `config/factor-models.yaml`：legacy 因子选股已于 2026-09-18 退役，`models` 只剩 `ml_walkforward`，
 > 且它的 `weights` 为空（不参与加权回测，仅作模型登记）。`filters`/`factors` 保留，供
 > `factor_snapshots` 历史快照做只读诊断。改这个文件会影响：9103 `/selection`、`/selection/models`、
@@ -82,7 +102,35 @@ curl http://127.0.0.1:9102/api/v1/health      # 期望 authEnabled=true, authSou
 `artifacts/config-snapshots/<sha256>/`（`config.json` + `config.yaml` + `meta.json`），
 哈希相同不重复写。
 
-### 查询入口
+### 哪些运行族有配置档案（③ 已经补齐模拟盘）
+
+| 运行族 | 表 / 列 | 状态 |
+|---|---|---|
+| 股票 walk-forward | `stock_walkforward_runs.config` + 4 个指纹列 | ✅ |
+| 股票模拟盘 | `stock_sim_runs.config_json` + 4 个指纹列 | ✅ 2026-09-20 补齐 |
+| ETF 模拟盘 | `etf_sim_runs.config_json` + 4 个指纹列 | ✅ 2026-09-20 补齐 |
+| ETF walk-forward | `etf_walkforward_runs.config` | ⚠️ 有内容快照，暂无指纹列 |
+| 回测 / 短线回测 | `backtest_runs.config_json` / `short_backtest_runs.params_json` | ⚠️ 同上 |
+| ETF 模型训练 | `etf_model_runs.params` | ⚠️ 只有训练参数 |
+
+**已补齐的族**统一通过 `config_integrity.stamp_run_config()` 写入，因此字段名与语义一致：
+`config_json`（完整生效配置，含 `configSchemaVersion`）、`config_sha256`、
+`config_yaml_sha256`、`git_commit`、`git_dirty`。
+
+### 配置 JSON 的结构约定
+
+各族 JSON 的**形状**不同（这是历史演进的结果，不做破坏性改写），但比较一律走
+`config_sha256`，所以形状差异不影响"两次运行是否同配置"的判断：
+
+| 族 | 形状 | 说明 |
+|---|---|---|
+| walk-forward | 扁平 + 别名 | 顶层 `ensembleMethod`/`rebalanceDays` 等为兼容旧前端保留，新消费方读 `backtest` 子对象 |
+| 股票模拟盘 | 嵌套 | `kind: "stock_sim"`；ML 盘额外带 `sourceConfig`（整份 `stock-ml.yaml`） |
+| ETF 模拟盘 | 嵌套 | `kind: "etf_sim"`；带 `signalRunId` 记录它跟的是哪次 walkforward |
+
+三个共同点：都有 `configSchemaVersion`；都用规范化的相同键名；都能通过同一个
+`/api/v1/stock-ml/config/fingerprint` 端点按哈希取回。
+
 
 ```bash
 # 列出运行过的配置指纹（时间倒序）

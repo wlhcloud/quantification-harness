@@ -1,6 +1,14 @@
+# ✅ 活配置：`quant_engine/main.py` 的 `_backtest_handler` 会加载本文件作为回测默认值。
+#
+# 注意与 stock-ml.yaml 的口径差异（都是有意为之，不要"对齐"）：
+#   - 本文件 slippageRate 0.001 vs stock-ml.yaml 0.004
+#     （stock-ml 的 0.004 含 10bp 基础滑点 + 30bp 尾盘价格漂移/冲击代理）
+#   - 本文件 entry/exit = next_open/next_close（T+1 口径）
+#     vs stock-ml 的 same_day_close（14:40 信号、当日尾盘成交）
+# 两套口径服务不同链路，改动前先确认是谁在读。
 id: t1-default
 version: 1
-status: draft
+status: active
 entry: next_open
 exit: next_close
 commissionRate: 0.00008

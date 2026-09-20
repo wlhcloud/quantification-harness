@@ -1,3 +1,7 @@
+# ⚠️ 文档性配置，**当前没有任何代码读取这个文件**（与同目录 daily-v1.yaml 同因）。
+#
+# minute-v1 从未落地：minute.db 为空、分钟线业务已停用（见 deploy/README.md 的数据文件表）。
+# 保留仅为记录这个设计 id；需要真正的分钟链路时再启用。
 id: minute-v1
 version: 1
 frequency: daily

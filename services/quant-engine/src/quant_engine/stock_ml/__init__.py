@@ -727,7 +727,9 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             yaml_text = Path(config_path).read_text(encoding="utf-8")
         except OSError:
             yaml_text = None
-    write_snapshot(artifact_dir, fingerprint, effective_cfg, run_id=run_id, yaml_text=yaml_text)
+    # 快照根取 artifact_dir 的上一级（即 artifacts/），让所有运行族共用同一个
+    # 内容寻址档案库——按族拆成多份会让"一处回答任何运行的配置"这个查询重新碎片化。
+    write_snapshot(artifact_dir.parent, fingerprint, effective_cfg, run_id=run_id, yaml_text=yaml_text)
     (run_dir / "config-fingerprint.json").write_text(
         json.dumps(fingerprint, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
     if latest_model_path:

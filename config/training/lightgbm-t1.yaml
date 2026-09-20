@@ -1,7 +1,16 @@
+# ⚠️ 文档性配置，**当前没有任何代码读取这个文件**。
+#
+# `quant_engine/pipeline.py` 用字面 `modelId="lightgbm-t1"` 工作，从不加载本文件。
+# 下面这些值**不生效**。
+#
+# ⚠️ 已确认的漂移（2026-09-20）：本文件声明 `label: t1_close_return`，但代码实际计算的
+# 是 `next_close / next_open - 1`，即 **t1_open_close_return**（见 pipeline.py 的
+# label 计算与 `"label": "t1_open_close_return"` 回显）。**以代码为准**。
+# split/resources 段同样未生效：真实切分走 config/stock-ml.yaml 的 walkforward 段。
 id: lightgbm-t1
 version: 1
 status: draft
-label: t1_close_return
+label: t1_open_close_return
 featureSet: daily-v1
 split:
   method: walk_forward
