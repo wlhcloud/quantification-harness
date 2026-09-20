@@ -24,6 +24,14 @@ say "部署根目录: $PROJECT_ROOT"
 [[ -f "$PROJECT_ROOT/.quant.env" ]] || { echo "缺少 $PROJECT_ROOT/.quant.env（服务鉴权/上游 token 都从这里读）" >&2; exit 1; }
 command -v screen >/dev/null || { echo "缺少 screen：apt-get install -y screen" >&2; exit 1; }
 
+# ---------------------------------------------------------------- 0. 构建信息
+# 把"本批代码是哪个提交"固化下来。服务进程不允许 shell out，运行时只能读这个文件；
+# 它是运行记录里 git_commit 的来源（见 stock_ml/config_integrity.py）。
+if [[ -x "$PROJECT_ROOT/deploy/build-info.sh" ]]; then
+  say "固化构建信息"
+  "$PROJECT_ROOT/deploy/build-info.sh"
+fi
+
 # ---------------------------------------------------------------- 1. conda 环境
 if [[ ! -x "$PYTHON_BIN" ]]; then
   say "创建 conda 环境 $CONDA_ENV (python 3.12)"

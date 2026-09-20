@@ -62,6 +62,56 @@ curl http://127.0.0.1:9102/api/v1/health      # 期望 authEnabled=true, authSou
 # 4) 校验：不带 key 的写请求必须 401
 ```
 
+## 配置可观测性：每次运行都能回答"用了什么配置、哪个代码版本"
+
+配置面本身（上面 4 层）解决"谁说了算"，但不解决"**上次那个结果是用哪份配置跑出来的**"。
+2026-09-20 审计 25 次 walk-forward 运行后补上了这层，机制在
+`services/quant-engine/src/quant_engine/stock_ml/config_integrity.py`。
+
+每次 `stock_walkforward` 运行会在 `data/factors.db` 留下四个值：
+
+| 字段 | 含义 | 能回答的问题 |
+|---|---|---|
+| `config_sha256` | **实际生效配置**的规范化哈希 | 两次运行的配置是否完全相同（相同哈希 == 完全相同） |
+| `config_yaml_sha256` | 当次读入的 **YAML 文件**哈希 | 与上一个不同 → YAML 被代码/参数覆盖过，或改了 yaml 没提交 |
+| `git_commit` | 部署时的 HEAD 提交号 | 这次跑的是哪个代码版本 |
+| `git_dirty` | 部署时工作区是否有未提交改动 | `True` 意味着代码不可复现，结果只作参考 |
+
+同一个哈希只保留一条档案（表 `config_fingerprint`，含**原始 YAML 文本**与完整生效配置），
+所以"这个配置被哪些运行用过"是一次索引查询。配置本体同时按内容寻址归档到
+`artifacts/config-snapshots/<sha256>/`（`config.json` + `config.yaml` + `meta.json`），
+哈希相同不重复写。
+
+### 查询入口
+
+```bash
+# 列出运行过的配置指纹（时间倒序）
+curl -s 'http://127.0.0.1:9102/api/v1/stock-ml/config/fingerprints?limit=20'
+
+# 按哈希取回完整存档（生效配置 + 原始 YAML + 代码版本）
+curl -s 'http://127.0.0.1:9102/api/v1/stock-ml/config/fingerprint?sha256=<64位>'
+
+# 运行列表里每个 run 也带 fingerprint 字段
+curl -s 'http://127.0.0.1:9102/api/v1/stock-ml/walkforward/list?limit=10'
+```
+
+任务结果里也直接回显 `fingerprint`，不必等落库后再查；dryRun 同样回显。
+
+### 代码版本从哪来（为什么不调 git）
+
+服务进程**不允许 shell out**（架构约定，`test_scripts_never_shell_out` 会红）。
+所以版本信息由 `deploy/build-info.sh` 在**部署/启动时**写成 `.build-info.json`，
+运行时只读文件。优先级：环境变量 `QUANT_BUILD_COMMIT` / `QUANT_BUILD_DIRTY`
+> `.build-info.json` > 未知（`None`）。
+
+`build-info.sh` 由 `install.sh` 与 `screen-up.sh` 自动调用，所以 **`git pull` 后
+重跑 `screen-up.sh` 就会刷新版本信息**。
+
+> **未知就是未知**：拿不到版本时这两列是 `None`（不是空串、也不当 clean）。
+> 指纹机制上线前的历史运行同样为 `None`，语义是"该次运行早于指纹机制"，
+> 不要误读成"没有配置"——那批运行的配置**内容仍完整保存在 `config` 列里**。
+
+
 ## 仍存的一处重复（已知，未收敛）
 
 `apps/quant-web/.env` 的 `VITE_QUANT_API_KEY` 是管理 key 的**第二份副本**。Vite 只按固定文件名

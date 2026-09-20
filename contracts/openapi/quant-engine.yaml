@@ -146,6 +146,28 @@ paths:
       responses:
         '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
         '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock-ml/config/fingerprint:
+    get:
+      operationId: getStockMlConfigFingerprint
+      summary: 按配置哈希取回完整配置存档（生效配置 + 原始 YAML + 代码版本）
+      parameters:
+        - name: sha256
+          in: query
+          required: true
+          schema: { type: string, minLength: 8 }
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/config/fingerprints:
+    get:
+      operationId: getStockMlConfigFingerprints
+      summary: 列出运行过的配置指纹（相同 configSha256 即完全相同的生效配置）
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        '200': { description: Read-only endpoint }
   /api/v1/stock-ml/walkforward/delete:
     delete:
       operationId: deleteStockMlWalkforwardDelete

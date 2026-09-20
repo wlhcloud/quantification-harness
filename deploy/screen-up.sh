@@ -30,6 +30,15 @@ done
 [[ -x "$PYTHON_BIN" ]] || { echo "缺少 conda 环境: $PYTHON_BIN（先跑 deploy/install.sh）" >&2; exit 3; }
 mkdir -p "$PROJECT_ROOT/logs"
 
+# 启动前刷新构建信息：服务进程按架构约定不允许 shell out，运行记录里的"代码版本"
+# 只能来自这里写下的 .build-info.json。放在启动**之前**，才能保证记录的就是
+# 本批即将加载进内存的代码。
+if [[ -x "$PROJECT_ROOT/deploy/build-info.sh" ]]; then
+  "$PROJECT_ROOT/deploy/build-info.sh" || echo "build-info.sh 失败（代码版本将记为未知）" >&2
+else
+  echo "提示: 缺少 deploy/build-info.sh，运行记录中的代码版本会记为未知" >&2
+fi
+
 start_one() {
   local svc="$1" session="${SESSION[$1]}" log="$PROJECT_ROOT/logs/${SESSION[$1]}.log"
   if screen -list 2>/dev/null | grep -qE "[0-9]+\.${session}[[:space:]]"; then

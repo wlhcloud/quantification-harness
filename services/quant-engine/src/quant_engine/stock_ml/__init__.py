@@ -42,6 +42,10 @@ from .common import (  # noqa: F401
     _ensure_selection_columns, _ensure_walkforward_columns, _forward_labels, _now, _rolling_corr, _validate_execution_config,
     connect, load_config,
 )
+from .config_integrity import (  # noqa: F401
+    build_fingerprint, effective_config_sha256, get_fingerprint, git_info,
+    list_fingerprints, record_fingerprint, write_snapshot,
+)
 from .factors import build_factors  # noqa: F401
 
 
@@ -175,7 +179,14 @@ def _train_ranker_isolated(frame_file: Path, label: str, model_cfg: dict[str, An
 def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, cfg: dict[str, Any],
                     progress: Callable[[float], None] = lambda p: None,
                     cancelled: Callable[[], bool] = lambda: False,
-                    parameters: dict[str, Any] | None = None) -> dict[str, Any]:
+                    parameters: dict[str, Any] | None = None,
+                    config_path: Path | None = None) -> dict[str, Any]:
+    """跑一次 walk-forward。
+
+    ``config_path`` 是本次 ``cfg`` 的来源 YAML 路径，**仅用于配置可观测性**：
+    它的内容哈希会与"实际生效配置"的哈希一起入库，两者不同即说明
+    YAML 被代码/参数覆盖过。为 None 时该列留空，其余指纹照常记录。
+    """
     import tempfile
     import lightgbm as lgb
 
@@ -673,35 +684,54 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
         factors_path, hold_date, required_features=list(model_cfg.get("featuresOverride") or []))
     for warning in aux_freshness["warnings"]:
         print(f"[WARN] 辅助因子新鲜度：{warning}", flush=True)
-    config_json = json.dumps({"label": label, "topN": bt_cfg.get("topN"), "model": model_cfg,
-                              "ensembleSeeds": ensemble_seeds, "ensembleSize": n_ensemble,
-                              "ensembleMethod": ensemble_method if n_ensemble > 1 else "single",
-                              "minTrain": min_train, "validDays": valid_days,
-                              "testDays": test_days, "stepDays": step_days,
-                              "loadHistoryDays": load_history_days,
-                              "evaluationScope": evaluation_scope,
-                              "publishGate": publish_gate_cfg,
-                              "publishTopN": publish_top_n, "embargoDays": wf_cfg.get("embargoDays", 0),
-                              "rebalanceDays": bt_cfg.get("rebalanceDays", 1),
-                              "executionMode": bt_cfg.get("executionMode", "same_day_close"),
-                              "snapshotTime": bt_cfg.get("snapshotTime", "14:40"),
-                              "snapshotSource": bt_cfg.get("snapshotSource", "close_proxy"),
-                              "auxFactorLatest": aux_freshness["tables"],
-                              "auxFactorWarnings": aux_freshness["warnings"],
-                              "regimeFilter": bool(bt_cfg.get("regimeFilter", False)),
-                              # 保留完整有效回测参数，确保每个 run 可复现。上面的顶层
-                              # 字段为兼容旧前端保留，新消费方应优先读取 backtest。
-                              "backtest": bt_cfg,
-                              "effectiveDevices": sorted(effective_devices)}, ensure_ascii=False)
+    # 先组装"实际生效配置"本体，再对它取指纹。指纹字段本身绝不能参与哈希，
+    # 否则自指、无法比对（详见 config_integrity 的模块说明）。
+    effective_cfg: dict[str, Any] = {
+        "label": label, "topN": bt_cfg.get("topN"), "model": model_cfg,
+        "ensembleSeeds": ensemble_seeds, "ensembleSize": n_ensemble,
+        "ensembleMethod": ensemble_method if n_ensemble > 1 else "single",
+        "minTrain": min_train, "validDays": valid_days,
+        "testDays": test_days, "stepDays": step_days,
+        "loadHistoryDays": load_history_days,
+        "evaluationScope": evaluation_scope,
+        "publishGate": publish_gate_cfg,
+        "publishTopN": publish_top_n, "embargoDays": wf_cfg.get("embargoDays", 0),
+        "rebalanceDays": bt_cfg.get("rebalanceDays", 1),
+        "executionMode": bt_cfg.get("executionMode", "same_day_close"),
+        "snapshotTime": bt_cfg.get("snapshotTime", "14:40"),
+        "snapshotSource": bt_cfg.get("snapshotSource", "close_proxy"),
+        "auxFactorLatest": aux_freshness["tables"],
+        "auxFactorWarnings": aux_freshness["warnings"],
+        "regimeFilter": bool(bt_cfg.get("regimeFilter", False)),
+        # 保留完整有效回测参数，确保每个 run 可复现。上面的顶层
+        # 字段为兼容旧前端保留，新消费方应优先读取 backtest。
+        "backtest": bt_cfg,
+        "effectiveDevices": sorted(effective_devices),
+    }
+    # 配置可观测性：指纹（实际生效配置哈希 + YAML 文件哈希 + 服务启动时的代码版本）。
+    # config_path 为 None 时（直接调用本函数）YAML 哈希为空、其余照常记录。
+    fingerprint = build_fingerprint(effective_cfg, config_path)
+    config_json = json.dumps({**effective_cfg, **fingerprint}, ensure_ascii=False)
     holdings_json = json.dumps({"tradeDate": hold_date, "holdings": holdings}, ensure_ascii=False)
     # 每个run固化自己的模型和集成清单，历史版本不再依赖会被下次训练覆盖的latest文件。
     run_model_path: Path | None = None
     model_sha256: str | None = None
+    run_dir = artifact_dir / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # 配置快照按内容寻址归档（同配置只存一份），与模型是否产出无关：
+    # 即使本次没训练出模型，也要能回答"这次用的什么配置、哪个代码版本"。
+    import shutil
+    yaml_text: str | None = None
+    if config_path:
+        try:
+            yaml_text = Path(config_path).read_text(encoding="utf-8")
+        except OSError:
+            yaml_text = None
+    write_snapshot(artifact_dir, fingerprint, effective_cfg, run_id=run_id, yaml_text=yaml_text)
+    (run_dir / "config-fingerprint.json").write_text(
+        json.dumps(fingerprint, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
     if latest_model_path:
-        import shutil
         latest_dir = Path(latest_model_path).parent
-        run_dir = artifact_dir / "runs" / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
         copied: list[Path] = []
         for source in latest_dir.glob("stock-wf-model*.txt"):
             target = run_dir / source.name
@@ -728,11 +758,12 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             source = artifact_dir / artifact_name
             if source.exists():
                 shutil.copy2(source, run_dir / artifact_name)
-        (run_dir / "run-metadata.json").write_text(json.dumps({
-            "runId": run_id, "generatedAt": _now(), "config": json.loads(config_json),
-            "engineVersion": engine_version,
-            "metrics": metrics, "modelSha256": model_sha256,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+    (run_dir / "run-metadata.json").write_text(json.dumps({
+        "runId": run_id, "generatedAt": _now(), "config": json.loads(config_json),
+        "engineVersion": engine_version,
+        "metrics": metrics, "modelSha256": model_sha256,
+        "fingerprint": fingerprint,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not dry_run:
         con5 = connect(factors_path)
         try:
@@ -740,13 +771,20 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             signal_published = bool(published) and not publish_blockers
             if signal_published:
                 con5.execute("UPDATE stock_walkforward_runs SET is_published=0")
+            generated_at = _now()
             con5.execute(
-                "INSERT OR REPLACE INTO stock_walkforward_runs(run_id,generated_at,label,start_date,end_date,windows,config,metrics,holdings,status,result_version,model_path,model_sha256,is_published) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (run_id, _now(), label, span_start, span_end, len(window_stats),
+                "INSERT OR REPLACE INTO stock_walkforward_runs(run_id,generated_at,label,start_date,end_date,windows,config,metrics,holdings,status,result_version,model_path,model_sha256,is_published,config_sha256,config_yaml_sha256,git_commit,git_dirty) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (run_id, generated_at, label, span_start, span_end, len(window_stats),
                  config_json, json.dumps(metrics, ensure_ascii=False), holdings_json, "complete", 2,
                  str(run_model_path) if run_model_path else None, model_sha256,
-                 1 if signal_published else 0))
+                 1 if signal_published else 0,
+                 fingerprint["effectiveConfigSha256"], fingerprint.get("yamlSha256"),
+                 fingerprint.get("gitCommit"),
+                 None if fingerprint.get("gitDirty") is None else int(bool(fingerprint["gitDirty"]))))
+            # 内容寻址的配置档案：按哈希索引，回答"这个配置被哪些运行用过"。
+            record_fingerprint(con5, fingerprint, effective_cfg, run_id=run_id,
+                               yaml_text=yaml_text, generated_at=generated_at)
             con5.commit()
         finally:
             con5.close()
@@ -761,6 +799,9 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             "signalModel": ML_MODEL_ID, "dryRun": dry_run, "configWarnings": config_warnings,
             "treeNotes": tree_notes,
             "engineVersion": engine_version,
+            # 配置指纹回显：任务结果里就能确认"本次用了什么配置、哪个代码版本"，
+            # 不必等落库后再去查（dryRun 也照常回显）。
+            "fingerprint": fingerprint,
             # 生效参数回显：A/B 实验必须能一眼确认开关真的生效（曾因浅合并导致实验静默失效）。
             "effectiveBacktest": {"topN": bt_cfg.get("topN"),
                                   "maxPositionWeight": bt_cfg.get("maxPositionWeight"),
@@ -770,23 +811,52 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
                                   "technicalTiming": bt_cfg.get("technicalTiming")}}
 
 
+def _fingerprint_from_row(row: Any, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """从运行记录里取配置指纹（可观测性字段）。
+
+    新记录读独立列；指纹机制上线前的旧记录列为 NULL，此时退回读 config JSON 内嵌的
+    同名字段（那批记录本来就没有，故返回 None —— 语义是"该次运行早于指纹机制"，
+    即**未知**，不能被误读成"没有配置"）。
+    """
+    cfg = cfg or {}
+    def pick(col: str, key: str) -> Any:
+        try:
+            value = row[col]
+        except (IndexError, KeyError):
+            value = None
+        return value if value is not None else cfg.get(key)
+    dirty = pick("git_dirty", "gitDirty")
+    return {
+        "configSha256": pick("config_sha256", "effectiveConfigSha256"),
+        "configYamlSha256": pick("config_yaml_sha256", "yamlSha256"),
+        "gitCommit": pick("git_commit", "gitCommit"),
+        "gitDirty": None if dirty is None else bool(dirty),
+    }
+
+
 def latest_walkforward(factors_path: Path) -> dict[str, Any]:
     con = connect(factors_path)
     try:
         _ensure_walkforward_columns(con)
         # 优先返回已发布的版本，没有则返回最新版本
         row = con.execute(
-            "SELECT run_id,generated_at,label,metrics,holdings,is_published,result_version,model_path,model_sha256 "
+            "SELECT run_id,generated_at,label,metrics,holdings,is_published,result_version,model_path,model_sha256,"
+            "config,config_sha256,config_yaml_sha256,git_commit,git_dirty "
             "FROM stock_walkforward_runs ORDER BY result_version DESC,is_published DESC,generated_at DESC LIMIT 1").fetchone()
     finally:
         con.close()
     if not row:
         return {"run": None}
+    try:
+        cfg = json.loads(row["config"]) if row["config"] else {}
+    except (TypeError, ValueError):
+        cfg = {}
     return {"run": {"runId": row["run_id"], "generatedAt": row["generated_at"], "label": row["label"],
                     "metrics": json.loads(row["metrics"]), "holdings": json.loads(row["holdings"]),
                     "isPublished": bool(row["is_published"]), "resultVersion": row["result_version"],
                     "legacy": int(row["result_version"]) < 2, "modelPath": row["model_path"],
-                    "modelSha256": row["model_sha256"]}}
+                    "modelSha256": row["model_sha256"],
+                    "fingerprint": _fingerprint_from_row(row, cfg)}}
 
 
 def list_walkforward(factors_path: Path, limit: int = 50) -> dict[str, Any]:
@@ -796,7 +866,7 @@ def list_walkforward(factors_path: Path, limit: int = 50) -> dict[str, Any]:
         _ensure_walkforward_columns(con)
         rows = con.execute(
             "SELECT run_id,generated_at,label,start_date,end_date,windows,config,metrics,status,is_published,notes,"
-            "result_version,model_path,model_sha256 "
+            "result_version,model_path,model_sha256,config_sha256,config_yaml_sha256,git_commit,git_dirty "
             "FROM stock_walkforward_runs ORDER BY generated_at DESC LIMIT ?", (limit,)).fetchall()
     finally:
         con.close()
@@ -834,6 +904,9 @@ def list_walkforward(factors_path: Path, limit: int = 50) -> dict[str, Any]:
             "legacy": int(row["result_version"]) < 2,
             "modelPath": row["model_path"],
             "modelSha256": row["model_sha256"],
+            # 配置指纹：同 configSha256 即完全相同配置；configSha256 != configYamlSha256
+            # 说明读入的 YAML 被代码/参数覆盖过；gitDirty=True 说明代码不可复现。
+            "fingerprint": _fingerprint_from_row(row, cfg),
             "model": {
                 "nSeeds": n_seeds,
                 "seeds": seeds,

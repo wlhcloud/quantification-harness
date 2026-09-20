@@ -27,6 +27,7 @@ from .stock_ml import get_model_config as stock_ml_get_model_config, get_feature
 from .stock_ml import backtest_with_model as stock_ml_backtest_with_model, find_model_path_by_run_id as stock_ml_find_model_path
 from .stock_ml import predict_with_model as stock_ml_predict_with_model
 from .stock_ml import audit_label_price_basis as stock_ml_audit_label_price_basis
+from .stock_ml import git_info as stock_ml_git_info
 from .stock_ml.aux_factors import (
     aux_factor_freshness,
     build_industry_factors,
@@ -110,8 +111,12 @@ def _stock_ml_factors_handler(parameters, progress, cancelled):
 
 
 def _stock_walkforward_handler(parameters, progress, cancelled):
+    # config_path 只用于配置可观测性：把 YAML 文件哈希与实际生效配置哈希一起入库，
+    # 两者不同即说明 YAML 被代码/参数覆盖（详见 stock_ml.config_integrity）。
     return stock_ml_run_walkforward(settings.factors_path, settings.market_path,
-                                    settings.stock_ml_artifact_dir, _stock_ml_config(), progress, cancelled, parameters)
+                                    settings.stock_ml_artifact_dir, _stock_ml_config(),
+                                    progress, cancelled, parameters,
+                                    config_path=settings.stock_ml_config_path)
 
 
 manager.register(JobType.BACKTEST, _backtest_handler)
@@ -250,6 +255,42 @@ def stock_ml_walkforward_latest() -> dict:
 @app.get("/api/v1/stock-ml/walkforward/list")
 def stock_ml_walkforward_list(limit: int = Query(50, ge=1, le=200)) -> dict:
     return stock_ml_list_walkforward(settings.factors_path, limit=limit)
+
+
+# ---- 配置可观测性：回答"每次运行到底用了什么配置、哪个代码版本" ----
+
+def _config_integrity_con():
+    from .stock_ml.common import connect
+    return connect(settings.factors_path)
+
+
+@app.get("/api/v1/stock-ml/config/fingerprints")
+def stock_ml_config_fingerprints(limit: int = Query(50, ge=1, le=500)) -> dict:
+    """列出运行过的配置指纹（按时间倒序）。
+
+    相同 configSha256 == 完全相同的生效配置。指纹机制上线前的旧记录不在本表内。
+    """
+    from .stock_ml.config_integrity import list_fingerprints
+    con = _config_integrity_con()
+    try:
+        items = list_fingerprints(con, limit=limit)
+    finally:
+        con.close()
+    return {"count": len(items), "items": items, "git": stock_ml_git_info()}
+
+
+@app.get("/api/v1/stock-ml/config/fingerprint")
+def stock_ml_config_fingerprint(sha256: str = Query(..., min_length=8)) -> dict:
+    """按配置哈希取回完整存档：生效配置 + 原始 YAML 文本 + 代码版本。"""
+    from .stock_ml.config_integrity import get_fingerprint
+    con = _config_integrity_con()
+    try:
+        found = get_fingerprint(con, sha256)
+    finally:
+        con.close()
+    if found is None:
+        return {"ok": False, "error": f"未找到配置指纹: {sha256}"}
+    return {"ok": True, **found}
 
 
 @app.post("/api/v1/stock-ml/walkforward/publish")

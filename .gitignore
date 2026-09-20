@@ -67,3 +67,5 @@ scripts/_red_div_low_vol.py
 
 # ---- 本地散落产物 ----
 stock_analysis_data.json
+# 部署时由 deploy/build-info.sh 生成（记录本次部署的提交号），属下机产物不入库
+.build-info.json

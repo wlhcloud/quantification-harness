@@ -61,7 +61,15 @@ CREATE TABLE IF NOT EXISTS stock_walkforward_runs (
   config TEXT NOT NULL,
   metrics TEXT NOT NULL,
   holdings TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'complete'
+  status TEXT NOT NULL DEFAULT 'complete',
+  -- 配置可观测性（2026-09-20）：config_sha256 是"实际生效配置"的规范化哈希，
+  -- 相同哈希 == 完全相同的运行配置；config_yaml_sha256 是当次 YAML 文件哈希，
+  -- 与前者不同即说明 YAML 被代码覆盖过。git_commit/git_dirty 记录服务启动时的
+  -- 代码版本，用于回答"这次跑的是哪个提交"。
+  config_sha256 TEXT,
+  config_yaml_sha256 TEXT,
+  git_commit TEXT,
+  git_dirty INTEGER
 );
 -- selection_candidates 的建表语句原先在 quant_engine/factors/__init__.py 里（legacy 因子选股模块）。
 -- legacy 退役并删除该模块后，这张表的唯一写入方就是本模块（walkforward 发布候选池），
@@ -237,6 +245,17 @@ def _ensure_walkforward_columns(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE stock_walkforward_runs ADD COLUMN model_path TEXT")
     if "model_sha256" not in have:
         con.execute("ALTER TABLE stock_walkforward_runs ADD COLUMN model_sha256 TEXT")
+    # 配置可观测性（2026-09-20）：把"这次跑的是什么配置、哪个代码版本"钉进运行记录。
+    # 在此之前只能靠人肉 diff config JSON 反推，且无法回指代码提交。
+    # 旧记录这两列为 NULL —— 表示"该次运行早于指纹机制"，属未知，不是"没有配置"。
+    if "config_sha256" not in have:
+        con.execute("ALTER TABLE stock_walkforward_runs ADD COLUMN config_sha256 TEXT")
+    if "config_yaml_sha256" not in have:
+        con.execute("ALTER TABLE stock_walkforward_runs ADD COLUMN config_yaml_sha256 TEXT")
+    if "git_commit" not in have:
+        con.execute("ALTER TABLE stock_walkforward_runs ADD COLUMN git_commit TEXT")
+    if "git_dirty" not in have:
+        con.execute("ALTER TABLE stock_walkforward_runs ADD COLUMN git_dirty INTEGER")
     con.commit()
 
 
