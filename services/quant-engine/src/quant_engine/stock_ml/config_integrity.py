@@ -66,6 +66,43 @@ CONFIG_SCHEMA_VERSION = 1
 # 服务启动时解析一次的构建信息（见模块 docstring 的说明）。
 _GIT_INFO: dict[str, Any] | None = None
 
+# 各运行族共用的一组配置档案列。集中定义是为了让"每个族都有同样的五个字段"
+# 成为结构事实，而不是六处手抄、各抄出不同拼写。典型用法：
+#
+#     CREATE TABLE ... ( ..., <CONFIG_COLUMN_DDL> );
+#
+# 见 ensure_config_columns() 用于给已存在的旧表做幂等迁移。
+CONFIG_COLUMNS = ("config_json", "config_sha256", "config_yaml_sha256",
+                  "git_commit", "git_dirty")
+CONFIG_COLUMN_DDL = (
+    "config_json TEXT, config_sha256 TEXT, config_yaml_sha256 TEXT, "
+    "git_commit TEXT, git_dirty INTEGER"
+)
+
+
+def ensure_config_columns(con: Any, table: str, skip: tuple[str, ...] = ()) -> list[str]:
+    """给已存在的表幂等补上配置档案列，返回实际新增的列名。
+
+    旧记录的新列保持 NULL = "该次运行早于档案机制"（未知），**不是**"没有配置"。
+
+    ``skip`` 用于**已经有自己配置列**的表（`etf_walkforward_runs.config`、
+    `etf_model_runs.params` 等）：跳过 ``config_json``，避免同一份配置存两遍。
+
+    注意：表不存在时直接返回空列表——本函数只管加列，建表由各族的 SCHEMA 负责，
+    这样纯读路径不会因为"顺手迁移"而建出半张表。
+    """
+    have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+    if not have:
+        return []
+    added: list[str] = []
+    for name in CONFIG_COLUMNS:
+        if name in have or name in skip:
+            continue
+        ddl = "INTEGER" if name == "git_dirty" else "TEXT"
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        added.append(name)
+    return added
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS config_fingerprint (
   config_sha256 TEXT PRIMARY KEY,
@@ -216,6 +253,37 @@ def build_fingerprint(effective: dict[str, Any], yaml_path: Path | None = None) 
     }
 
 
+def config_columns_for(
+    effective: dict[str, Any],
+    *,
+    yaml_path: Path | None = None,
+    include_config_json: bool = True,
+) -> dict[str, Any]:
+    """只算出要写进运行行的列（不落库、不写快照）。
+
+    用于**已有自己配置列**的族（`backtest_runs.config_json`、
+    `short_backtest_runs.params_json`、`etf_model_runs.params`、
+    `etf_walkforward_runs.config`）：它们不该再存一份重复的 ``config_json``，
+    但仍需要同一套指纹列，才能跨族比较"两次运行是否同配置"。
+
+    ``include_config_json=False`` 时只返回指纹列，不动调用方原有的配置列。
+    """
+    fingerprint = build_fingerprint(effective, yaml_path)
+    columns: dict[str, Any] = {
+        "config_sha256": fingerprint["effectiveConfigSha256"],
+        "config_yaml_sha256": fingerprint.get("yamlSha256"),
+        "git_commit": fingerprint.get("gitCommit"),
+        "git_dirty": (None if fingerprint.get("gitDirty") is None
+                      else int(bool(fingerprint["gitDirty"]))),
+    }
+    if include_config_json:
+        # schema 版本与生效配置一起存：格式演进后读取方才能判断怎么解析旧档案。
+        columns["config_json"] = json.dumps(
+            {**effective, "configSchemaVersion": CONFIG_SCHEMA_VERSION},
+            ensure_ascii=False, sort_keys=True)
+    return columns
+
+
 def stamp_run_config(
     con: Any,
     columns: dict[str, Any],
@@ -226,18 +294,18 @@ def stamp_run_config(
     yaml_path: Path | None = None,
     yaml_text: str | None = None,
     snapshot_root: Path | None = None,
+    include_config_json: bool = True,
 ) -> dict[str, Any]:
-    """给运行记录生成并落库配置档案，返回可并入运行行的列。
+    """给运行记录生成并落库配置档案，返回值并入 ``columns``。
 
-    所有运行族（walk-forward、股票/ETF 模拟盘）共用这一个入口，保证
-    "每个模型都有独立且完整的配置"是可查询、可追溯的同一件事，而不是
+    所有运行族（walk-forward、股票/ETF 模拟盘、回测、ETF 训练）共用这一个入口，
+    保证"每个模型都有独立且完整的配置"是可查询、可追溯的同一件事，而不是
     每个族各写一套、字段名和语义各自漂移。
 
-    ``columns`` 是调用方要写入的列名映射（已排除本函数负责的字段），例如::
-
-        columns = {"config_json": ..., "config_sha256": ..., "git_commit": ..., "git_dirty": ...}
-
-    返回其中已填充的 ``config_json`` 与指纹列。
+    ``columns`` 是调用方要写入的列名映射，本函数会往里填 ``config_json``（除非
+    ``include_config_json=False``）与四个指纹列，调用方随后按 ``columns`` 组装 INSERT。
+    已经有自己配置列的族（`backtest_runs.config_json` / `etf_model_runs.params` 等）
+    传 ``include_config_json=False``，避免同一份配置存两遍。
     """
     fingerprint = build_fingerprint(effective, yaml_path)
     # 给了 yaml_path 就把原文一并归档：只存哈希的话，日后无从还原当时那份配置的内容。
@@ -246,15 +314,8 @@ def stamp_run_config(
             yaml_text = Path(yaml_path).read_text(encoding="utf-8")
         except OSError:
             yaml_text = None
-    # schema 版本与生效配置一起存：格式演进后读取方才能判断怎么解析旧档案。
-    columns["config_json"] = json.dumps(
-        {**effective, "configSchemaVersion": CONFIG_SCHEMA_VERSION},
-        ensure_ascii=False, sort_keys=True)
-    columns["config_sha256"] = fingerprint["effectiveConfigSha256"]
-    columns["config_yaml_sha256"] = fingerprint.get("yamlSha256")
-    columns["git_commit"] = fingerprint.get("gitCommit")
-    columns["git_dirty"] = (None if fingerprint.get("gitDirty") is None
-                            else int(bool(fingerprint["gitDirty"])))
+    columns.update(config_columns_for(effective, yaml_path=yaml_path,
+                                      include_config_json=include_config_json))
     record_fingerprint(con, fingerprint, effective, run_id=run_id,
                        yaml_text=yaml_text, generated_at=generated_at)
     if snapshot_root is not None:

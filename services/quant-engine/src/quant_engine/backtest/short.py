@@ -9,11 +9,9 @@ from typing import Any, Callable
 
 from ..common import finite, now_iso, round6
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS short_backtest_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT,status TEXT NOT NULL,params_json TEXT NOT NULL,summary_json TEXT,error TEXT);
-CREATE TABLE IF NOT EXISTS short_backtest_trades(run_id TEXT NOT NULL,signal_date TEXT NOT NULL,entry_date TEXT NOT NULL,exit_date TEXT NOT NULL,code TEXT NOT NULL,name TEXT,rank INTEGER,score REAL,entry_time TEXT,entry_price REAL,exit_time TEXT,exit_price REAL,exit_reason TEXT,gross_return REAL,net_return REAL,max_favorable REAL,max_adverse REAL,PRIMARY KEY(run_id,signal_date,code));
-CREATE INDEX IF NOT EXISTS idx_short_trade_run ON short_backtest_trades(run_id,signal_date);
-"""
+# 单一事实来源：表结构只在 backtest/__init__.py 定义（SHORT_SCHEMA）。
+# 这里原先另抄了一份，改一处漏一处会让新列在两条路径上不一致。
+from . import SHORT_SCHEMA as SCHEMA
 
 
 def _date_iso(d: str) -> str:
@@ -37,8 +35,6 @@ def run_short(backtest_path: Path, market_path: Path, minute_path: Path, params:
     db.execute("ATTACH DATABASE ? AS market", (str(market_path),))
     db.execute("ATTACH DATABASE ? AS minute", (str(minute_path),))
     db.executescript(SCHEMA)
-    db.execute("INSERT INTO short_backtest_runs(run_id,started_at,status,params_json) VALUES(?,?,?,?)",
-               (run_id, started_at, "running", json.dumps(params, ensure_ascii=False)))
     start, end = str(params["startDate"]), str(params["endDate"])
     if len(start) != 8 or len(end) != 8 or start > end:
         raise ValueError("startDate/endDate must be an ordered YYYYMMDD range")
@@ -50,6 +46,26 @@ def run_short(backtest_path: Path, market_path: Path, minute_path: Path, params:
     commission = max(0.0, float(params.get("commissionRate", 0.00008)))
     stamp = max(0.0, float(params.get("stampDutyRate", 0.0005)))
     slippage = max(0.0, float(params.get("slippageRate", 0.001)))
+    # 记录**生效值**而非请求值：上面这些 max/min 会把越界参数夹回合法范围，
+    # 原样存 params 会让"存下来的配置"和"真正跑的参数"不是一回事。
+    effective_cfg = {
+        "kind": "backtest_short",
+        "startDate": start, "endDate": end, "topN": top_n,
+        "takeProfit": take_profit, "stopLoss": stop_loss,
+        "minimumExpected": minimum_expected, "weakExitTime": weak_exit_time,
+        "commissionRate": commission, "stampDutyRate": stamp, "slippageRate": slippage,
+    }
+    # 幂等迁移：旧库补指纹列（旧 run 保持 NULL = 早于档案机制）。
+    from ..stock_ml.config_integrity import ensure_config_columns, stamp_run_config
+    ensure_config_columns(db, "short_backtest_runs", skip=("config_json",))
+    columns: dict[str, Any] = {}
+    stamp_run_config(db, columns, effective_cfg, run_id=run_id, generated_at=started_at,
+                     include_config_json=False)
+    db.execute("INSERT INTO short_backtest_runs(run_id,started_at,status,params_json,"
+               "config_sha256,config_yaml_sha256,git_commit,git_dirty) VALUES(?,?,?,?,?,?,?,?)",
+               (run_id, started_at, "running", json.dumps(effective_cfg, ensure_ascii=False),
+                columns["config_sha256"], columns["config_yaml_sha256"],
+                columns["git_commit"], columns["git_dirty"]))
     try:
         all_dates = [r[0] for r in db.execute("SELECT DISTINCT trade_date tradeDate FROM market.daily_bars WHERE trade_date BETWEEN ? AND ? ORDER BY trade_date", (start, end)).fetchall()]
         calendar = [r[0] for r in db.execute("SELECT DISTINCT trade_date tradeDate FROM market.daily_bars WHERE trade_date>=? ORDER BY trade_date", (start,)).fetchall()]

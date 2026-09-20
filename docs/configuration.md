@@ -102,20 +102,34 @@ curl http://127.0.0.1:9102/api/v1/health      # 期望 authEnabled=true, authSou
 `artifacts/config-snapshots/<sha256>/`（`config.json` + `config.yaml` + `meta.json`），
 哈希相同不重复写。
 
-### 哪些运行族有配置档案（③ 已经补齐模拟盘）
+### 哪些运行族有配置档案（③ 已全族补齐）
 
-| 运行族 | 表 / 列 | 状态 |
-|---|---|---|
-| 股票 walk-forward | `stock_walkforward_runs.config` + 4 个指纹列 | ✅ |
-| 股票模拟盘 | `stock_sim_runs.config_json` + 4 个指纹列 | ✅ 2026-09-20 补齐 |
-| ETF 模拟盘 | `etf_sim_runs.config_json` + 4 个指纹列 | ✅ 2026-09-20 补齐 |
-| ETF walk-forward | `etf_walkforward_runs.config` | ⚠️ 有内容快照，暂无指纹列 |
-| 回测 / 短线回测 | `backtest_runs.config_json` / `short_backtest_runs.params_json` | ⚠️ 同上 |
-| ETF 模型训练 | `etf_model_runs.params` | ⚠️ 只有训练参数 |
+| 运行族 | 配置内容列 | 指纹列 | 状态 |
+|---|---|---|---|
+| 股票 walk-forward | `config` | ✅ 4 列 | ✅ |
+| 股票模拟盘 | `config_json` | ✅ 4 列 | ✅ |
+| ETF 模拟盘 | `config_json` | ✅ 4 列 | ✅ |
+| ETF walk-forward | `config` | ✅ 4 列 | ✅ |
+| 月度回测 | `config_json` | ✅ 4 列 | ✅ |
+| 短线回测 | `params_json` | ✅ 4 列 | ✅ |
+| ETF 模型训练 | `params` | ✅ 4 列 | ✅ |
 
-**已补齐的族**统一通过 `config_integrity.stamp_run_config()` 写入，因此字段名与语义一致：
-`config_json`（完整生效配置，含 `configSchemaVersion`）、`config_sha256`、
-`config_yaml_sha256`、`git_commit`、`git_dirty`。
+七个族全部通过 `config_integrity` 的同一套入口写入，字段名与语义一致：
+`config_json`（有独立配置 JSON 的族）、`config_sha256`、`config_yaml_sha256`、
+`git_commit`、`git_dirty`。
+
+> **已有自己配置列的族不重复存** `config_json`：`etf_walkforward_runs.config`、
+> `etf_model_runs.params`、`backtest_runs.config_json`、`short_backtest_runs.params_json`
+> 已是完整配置，只补指纹四项（`stamp_run_config(..., include_config_json=False)`）。
+
+补齐过程中顺手修掉的两处"存下来的配置 ≠ 真正跑的配置"：
+
+1. `etf_model_runs.params` 原先只存 `cfg["model"]`，把 `research`(label/minDays) 丢了
+   ——事后无法回答"这个模型是在哪套标签口径上训的"。现存完整片段。
+2. `short_backtest_runs.params_json` 原先原样存**请求参数**，而代码随后会用
+   `max(1, min(200, topN))`、`max(0.0, takeProfit)` 等把越界值夹回合法范围。
+   现改存**夹取后的生效值**。
+
 
 ### 配置 JSON 的结构约定
 

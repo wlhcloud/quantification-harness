@@ -4,6 +4,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from ..stock_ml.config_integrity import ensure_config_columns
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS etf_factor_snapshots (
   ts_code TEXT NOT NULL, trade_date TEXT NOT NULL,
@@ -26,7 +28,9 @@ CREATE TABLE IF NOT EXISTS etf_model_runs (
   run_id TEXT PRIMARY KEY, generated_at TEXT NOT NULL, label TEXT NOT NULL,
   train_start TEXT, train_end TEXT, valid_start TEXT, valid_end TEXT,
   test_start TEXT, test_end TEXT, rank_ic REAL, ic_mean REAL, icir REAL,
-  model_path TEXT, params TEXT, status TEXT, error TEXT
+  model_path TEXT, params TEXT, status TEXT, error TEXT,
+  -- 配置指纹（2026-09-20）：params 已是完整配置，故不再加重复的 config_json。
+  config_sha256 TEXT, config_yaml_sha256 TEXT, git_commit TEXT, git_dirty INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS etf_backtest_runs (
@@ -52,7 +56,9 @@ CREATE TABLE IF NOT EXISTS etf_walkforward_runs (
   run_id TEXT PRIMARY KEY, generated_at TEXT NOT NULL, label TEXT NOT NULL,
   start_date TEXT, end_date TEXT, windows INTEGER,
   config TEXT NOT NULL, metrics TEXT NOT NULL, holdings TEXT NOT NULL,
-  status TEXT, error TEXT
+  status TEXT, error TEXT,
+  -- 配置指纹（2026-09-20）：config 列已有完整配置，故不再加重复的 config_json。
+  config_sha256 TEXT, config_yaml_sha256 TEXT, git_commit TEXT, git_dirty INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS etf_walkforward_daily (
@@ -71,6 +77,10 @@ def connect(path: Path) -> sqlite3.Connection:
     con.isolation_level = None  # autocommit; explicit BEGIN/COMMIT in writers
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    # 幂等迁移：给已存在的旧表补配置档案列。这两张表本来就有自己的配置列
+    # （params / config），所以只要指纹四项，不要重复的 config_json。
+    for table in ("etf_model_runs", "etf_walkforward_runs"):
+        ensure_config_columns(con, table, skip=("config_json",))
     con.commit()
     return con
 

@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from ..stock_ml.config_integrity import stamp_run_config
 from . import backtest as bt
 from . import db as etf_db
 from . import factors as ef
@@ -86,15 +87,31 @@ def run_train(etf_db_path: Path, artifact_dir: Path, cfg: dict[str, Any],
                                  cancelled=cancelled)
     from .common import now_iso  # noqa: PLC0415
     run_id = f"etf-model-{now_iso()}"
+    # 训练族的生效配置：原先 params 只存 cfg["model"]，把 research(labels/minDays)
+    # 丢了——事后无法回答"这个模型是在哪套标签口径上训的"。这里存完整片段。
+    effective_cfg = {
+        "kind": "etf_train",
+        "label": label,
+        "research": dict(research_cfg),
+        "model": dict(cfg.get("model", {})),
+        "pool": dict(cfg.get("pool", {})),
+    }
     con = etf_db.connect(etf_db_path)
     try:
+        columns: dict[str, Any] = {}
+        # params 已经是完整配置，故不再重复存一份 config_json，只补指纹。
+        stamp_run_config(con, columns, effective_cfg, run_id=run_id,
+                         generated_at=now_iso(), include_config_json=False)
         con.execute("""INSERT OR REPLACE INTO etf_model_runs(run_id,generated_at,label,train_start,train_end,
-                     valid_start,valid_end,test_start,test_end,rank_ic,ic_mean,icir,model_path,params,status)
-                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     valid_start,valid_end,test_start,test_end,rank_ic,ic_mean,icir,model_path,params,status,
+                     config_sha256,config_yaml_sha256,git_commit,git_dirty)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (run_id, now_iso(), label, result["trainStart"], result["trainEnd"],
                      result["validStart"], result["validEnd"], result["testStart"], result["testEnd"],
                      result["rankIc"], result["ic"], result["rankIc"], result["modelPath"],
-                     json.dumps(cfg.get("model", {}), ensure_ascii=False), "complete"))
+                     json.dumps(effective_cfg, ensure_ascii=False), "complete",
+                     columns["config_sha256"], columns["config_yaml_sha256"],
+                     columns["git_commit"], columns["git_dirty"]))
         con.commit()
     finally:
         con.close()
@@ -385,19 +402,28 @@ def run_walkforward(etf_db_path: Path, market_path: Path, artifact_dir: Path, cf
     if bear:
         holdings = []
 
-    config_json = json.dumps({"topN": bt_cfg.get("topN"), "regimeFilter": regime,
-                              "model": {k2: v2 for k2, v2 in model_cfg.items() if k2 != "featuresOverride" or v2},
-                              "minTrain": min_train, "validDays": valid_days,
-                              "testDays": test_days, "stepDays": step_days}, ensure_ascii=False)
+    effective_cfg = {"kind": "etf_walkforward", "topN": bt_cfg.get("topN"), "regimeFilter": regime,
+                     "model": {k2: v2 for k2, v2 in model_cfg.items() if k2 != "featuresOverride" or v2},
+                     "minTrain": min_train, "validDays": valid_days,
+                     "testDays": test_days, "stepDays": step_days}
+    config_json = json.dumps(effective_cfg, ensure_ascii=False)
     metrics_json = json.dumps(metrics, ensure_ascii=False)
     holdings_json = json.dumps({"tradeDate": hold_date, "bearRegime": bear, "holdings": holdings},
                                ensure_ascii=False)
     con = etf_db.connect(etf_db_path)
     try:
+        # config 列已有完整配置，故只补指纹（include_config_json=False）避免存两遍。
+        columns: dict[str, Any] = {}
+        stamp_run_config(con, columns, effective_cfg, run_id=run_id, generated_at=now_iso(),
+                         include_config_json=False)
         con.execute("""INSERT OR REPLACE INTO etf_walkforward_runs(run_id,generated_at,label,start_date,end_date,
-                     windows,config,metrics,holdings,status) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                     windows,config,metrics,holdings,status,
+                     config_sha256,config_yaml_sha256,git_commit,git_dirty)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (run_id, now_iso(), label, span_start, span_end, len(window_stats),
-                     config_json, metrics_json, holdings_json, "complete"))
+                     config_json, metrics_json, holdings_json, "complete",
+                     columns["config_sha256"], columns["config_yaml_sha256"],
+                     columns["git_commit"], columns["git_dirty"]))
         con.execute("BEGIN")
         for d in daily_rows:
             con.execute("INSERT OR REPLACE INTO etf_walkforward_daily VALUES(?,?,?,?)",

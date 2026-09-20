@@ -10,13 +10,17 @@ from typing import Any, Callable
 from ..common import compact_date, finite, now_iso, ratio, round6
 
 MONTHLY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS backtest_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT,status TEXT NOT NULL,config_json TEXT NOT NULL,summary_json TEXT,error TEXT);
+CREATE TABLE IF NOT EXISTS backtest_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT,status TEXT NOT NULL,config_json TEXT NOT NULL,summary_json TEXT,error TEXT,
+  -- 配置指纹（2026-09-20）：config_json 已是完整配置，故不再加重复的 config_json 列。
+  config_sha256 TEXT,config_yaml_sha256 TEXT,git_commit TEXT,git_dirty INTEGER);
 CREATE TABLE IF NOT EXISTS backtest_periods(run_id TEXT NOT NULL,model_id TEXT NOT NULL,signal_date TEXT NOT NULL,entry_date TEXT NOT NULL,exit_date TEXT NOT NULL,holdings INTEGER,skipped INTEGER,gross_return REAL,net_return REAL,benchmark_return REAL,turnover REAL,PRIMARY KEY(run_id,model_id,signal_date));
 CREATE TABLE IF NOT EXISTS backtest_layers(run_id TEXT NOT NULL,model_id TEXT NOT NULL,signal_date TEXT NOT NULL,layer INTEGER NOT NULL,count INTEGER,net_return REAL,PRIMARY KEY(run_id,model_id,signal_date,layer));
 """
 
 SHORT_SCHEMA = """
-CREATE TABLE IF NOT EXISTS short_backtest_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT,status TEXT NOT NULL,params_json TEXT NOT NULL,summary_json TEXT,error TEXT);
+CREATE TABLE IF NOT EXISTS short_backtest_runs(run_id TEXT PRIMARY KEY,started_at TEXT NOT NULL,finished_at TEXT,status TEXT NOT NULL,params_json TEXT NOT NULL,summary_json TEXT,error TEXT,
+  -- 配置指纹（2026-09-20）：params_json 已是完整配置。
+  config_sha256 TEXT,config_yaml_sha256 TEXT,git_commit TEXT,git_dirty INTEGER);
 CREATE TABLE IF NOT EXISTS short_backtest_trades(run_id TEXT NOT NULL,signal_date TEXT NOT NULL,entry_date TEXT NOT NULL,exit_date TEXT NOT NULL,code TEXT NOT NULL,name TEXT,rank INTEGER,score REAL,entry_time TEXT,entry_price REAL,exit_time TEXT,exit_price REAL,exit_reason TEXT,gross_return REAL,net_return REAL,max_favorable REAL,max_adverse REAL,PRIMARY KEY(run_id,signal_date,code));
 CREATE INDEX IF NOT EXISTS idx_short_trade_run ON short_backtest_trades(run_id,signal_date);
 """
@@ -68,10 +72,21 @@ def run_monthly(backtest_path: Path, market_path: Path, finance_path: Path, mode
     db.execute("ATTACH DATABASE ? AS market", (str(market_path),))
     db.execute("ATTACH DATABASE ? AS finance", (str(finance_path),))
     db.executescript(MONTHLY_SCHEMA)
-    db.execute("INSERT INTO backtest_runs(run_id,started_at,status,config_json) VALUES(?,?,?,?)",
-               (run_id, started_at, "running", json.dumps({"topN": top_n, "commission": commission,
-                "stamp": stamp, "slippage": slippage, "annualRiskFreeRate": annual_risk_free,
-                "rebalance": "monthly"})))
+    # 幂等迁移：旧库补指纹列（旧 run 保持 NULL = 早于档案机制）。
+    from ..stock_ml.config_integrity import ensure_config_columns, stamp_run_config
+    ensure_config_columns(db, "backtest_runs", skip=("config_json",))
+    effective_cfg = {"kind": "backtest_monthly", "topN": top_n, "commission": commission,
+                     "stamp": stamp, "slippage": slippage,
+                     "annualRiskFreeRate": annual_risk_free, "rebalance": "monthly"}
+    columns: dict[str, Any] = {}
+    # config_json 列已是完整配置，故只补指纹，避免同一份配置存两遍。
+    stamp_run_config(db, columns, effective_cfg, run_id=run_id, generated_at=started_at,
+                     include_config_json=False)
+    db.execute("INSERT INTO backtest_runs(run_id,started_at,status,config_json,"
+               "config_sha256,config_yaml_sha256,git_commit,git_dirty) VALUES(?,?,?,?,?,?,?,?)",
+               (run_id, started_at, "running", json.dumps(effective_cfg),
+                columns["config_sha256"], columns["config_yaml_sha256"],
+                columns["git_commit"], columns["git_dirty"]))
     try:
         bars = db.execute("""SELECT b.code,b.trade_date tradeDate,b.open,b.high,b.low,b.close,b.pre_close,b.volume,b.amount,b.pct_chg pctChg,
                                   a.adj_factor adjFactor
