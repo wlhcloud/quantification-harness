@@ -1,0 +1,29 @@
+{
+  "filters": {
+    "minHistoryDays": 260,
+    "minListDays": 120,
+    "minClose": 2,
+    "minAmount20": 50000,
+    "excludeNamePatterns": ["ST", "退"]
+  },
+  "factors": {
+    "momentum20": { "label": "20日动量", "direction": 1 },
+    "momentum60": { "label": "60日动量", "direction": 1 },
+    "momentum120": { "label": "120日动量", "direction": 1 },
+    "trend": { "label": "均线趋势", "direction": 1 },
+    "volatility20": { "label": "20日波动率", "direction": -1 },
+    "drawdown60": { "label": "60日回撤", "direction": 1 },
+    "roe": { "label": "ROE", "direction": 1 },
+    "netprofitYoy": { "label": "净利润同比", "direction": 1 },
+    "debtToAssets": { "label": "资产负债率", "direction": -1 },
+    "peTtm": { "label": "PE TTM", "direction": -1, "positiveOnly": true },
+    "pb": { "label": "PB", "direction": -1, "positiveOnly": true },
+    "turnover20": { "label": "20日换手率", "direction": 1 }
+  },
+  "models": {
+    "balanced": { "label": "均衡增强", "minScore": 55, "minCoverage": 0.80, "maxCandidates": 100, "weights": { "momentum60": 0.15, "momentum120": 0.10, "trend": 0.10, "volatility20": 0.08, "drawdown60": 0.07, "roe": 0.15, "netprofitYoy": 0.10, "debtToAssets": 0.05, "peTtm": 0.08, "pb": 0.07, "turnover20": 0.05 } },
+    "quality_value": { "label": "质量价值", "minScore": 58, "minCoverage": 0.85, "maxCandidates": 100, "weights": { "roe": 0.28, "netprofitYoy": 0.18, "debtToAssets": 0.14, "peTtm": 0.18, "pb": 0.14, "drawdown60": 0.08 } },
+    "trend_momentum": { "label": "趋势动量", "minScore": 58, "minCoverage": 0.90, "maxCandidates": 100, "weights": { "momentum20": 0.18, "momentum60": 0.25, "momentum120": 0.18, "trend": 0.18, "volatility20": 0.08, "drawdown60": 0.06, "turnover20": 0.07 } },
+    "low_volatility": { "label": "低波稳健", "minScore": 58, "minCoverage": 0.85, "maxCandidates": 100, "weights": { "volatility20": 0.28, "drawdown60": 0.18, "roe": 0.18, "debtToAssets": 0.12, "peTtm": 0.10, "pb": 0.08, "momentum60": 0.06 } }
+  }
+}

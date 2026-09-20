@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh.local/contracts/job.schema.json",
+  "title": "Quant engine job",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "status",
+    "progress",
+    "parameters",
+    "created_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "enum": [
+        "features",
+        "training",
+        "backtest",
+        "inference",
+        "etf_factors",
+        "etf_research",
+        "etf_train",
+        "etf_backtest",
+        "etf_walkforward",
+        "stock_walkforward",
+        "stock_ml_factors",
+        "stock_industry_factors",
+        "stock_money_flow_factors",
+        "stock_ml_backtest",
+        "stock_ml_predict"
+      ]
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "complete",
+        "error",
+        "cancelled"
+      ]
+    },
+    "progress": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "result": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cancel_requested": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

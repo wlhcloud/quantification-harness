@@ -1,0 +1,69 @@
+# ---- 密钥（绝不能入库）----
+.env
+.quant.env
+# 轮换/收敛配置时留下的备份也含密钥
+.quant.env*
+
+# ---- 运行时数据与产物（不入库）----
+# 注意：必须用 `data/**`（匹配目录内所有内容）而不是 `data/`。
+# 用 `data/` 会把目录整体排除，git 就不再进入该目录，后面任何 `!data/xxx` 白名单都失效；
+# 而测试断言要求 data/start-910*.bat 存在（见 deploy/README.md）。
+data/**
+!data/start-9101.bat
+!data/start-9102.bat
+!data/start-9103.bat
+artifacts/
+artifacts/stock-ml/tmp/
+logs/
+*.log
+var/
+.tmp-test/
+backups/
+dsh-home/
+deepseek-harness/
+.pnpm-store/
+
+# ---- 依赖与缓存 ----
+node_modules/
+.venv/
+plugins/*/lib/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- 构建产物（可重建，不应跟踪）----
+apps/quant-web/dist/
+*.tsbuildinfo
+
+# ---- DSH 会话残留（保留在磁盘，但不入库）----
+recovered-chat-*.md
+user_attachment.bin
+draft_*/
+
+# ---- 临时/诊断脚本（不入库，避免仓库膨胀）----
+# 历史坑（务必保留这些注释，避免再次踩）：
+#  1) 不要用裸 `_*.py`：它会把 Python 包的 __init__.py 全部忽略，
+#     导致仓库缺少包初始化文件、代码无法运行。
+#  2) 源码内部的私有模块（如 stock_ml/_ranker_worker.py）也以 _ 开头，
+#     必须入库，否则干净 clone 会 ModuleNotFoundError。
+#  3) 已归档的研究脚本（scripts/research_archive/_*.py）保留入库。
+# 因此这里只逐个列出 scripts/ 下确定的一次性脚本。
+scripts/_dbg_depth.py
+scripts/_dbg_ml_progress.py
+scripts/_dbg_snap_depth.py
+scripts/_run_stock_ml_factors.py
+scripts/_run_stock_walkforward.py
+scripts/_ab_rebalance.py
+scripts/_factor_ic.py
+scripts/_red_div_low_vol.py
+*.bak
+*.bak-*
+*.orig
+*.rej
+
+# ---- 本地散落产物 ----
+stock_analysis_data.json

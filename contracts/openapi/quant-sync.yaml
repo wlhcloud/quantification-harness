@@ -1,0 +1,305 @@
+openapi: 3.1.0
+info:
+  title: DSH Quant Sync Service
+  version: 0.1.0
+servers:
+  - url: http://127.0.0.1:9101
+paths:
+  /api/v1/health:
+    get:
+      operationId: syncHealth
+      summary: Service health, capability flags and source credentials
+      description: >
+        authEnabled/authSource 供编排侧断言鉴权是否真的打开；minuteSyncEnabled 供前端做能力探测
+        （false 时 /sync/minute* 一律返回 410），字段缺失时前端按"未知"处理并保持入口可用。
+      responses:
+        '200': { description: "Status, version, database paths, authEnabled/authSource, minuteSyncEnabled" }
+
+  /api/v1/sources:
+    get:
+      operationId: listDataSources
+      summary: Data source configs from meta.db (rds/promax/official)
+      responses:
+        '200': { description: Source list }
+
+  /api/v1/routes:
+    get:
+      operationId: listToolRoutes
+      summary: Tool-to-source routing table from meta.db
+      responses:
+        '200': { description: Route list }
+
+  /api/v1/sync/daily:
+    post:
+      operationId: syncDaily
+      summary: Sync one trade date (daily bars + valuation)
+      parameters:
+        - { name: trade_date, in: query, required: true, schema: { type: string, pattern: '^[0-9]{8}$' } }
+      responses:
+        '200': { description: Per-table row counts }
+        '502': { description: Upstream or write failure }
+
+  /api/v1/sync/daily/history:
+    post:
+      operationId: syncDailyHistory
+      summary: Backfill daily history for a date range
+      parameters:
+        - { name: start_date, in: query, required: true, schema: { type: string } }
+        - { name: end_date, in: query, required: true, schema: { type: string } }
+        - { name: days, in: query, schema: { type: integer } }
+      responses:
+        '202': { description: History sync accepted }
+        '409': { description: Already running }
+
+  /api/v1/sync/daily/history/status:
+    get:
+      operationId: syncDailyHistoryStatus
+      summary: Current daily history sync state
+      responses:
+        '200': { description: Status and progress }
+
+  /api/v1/sync/finance:
+    post:
+      operationId: syncFinance
+      summary: Sync one symbol's financial statements
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string, pattern: '^[0-9]{6}\.(SH|SZ|BJ)$' } }
+        - { name: start_date, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Per-table received/accepted/total }
+        '502': { description: Upstream or write failure }
+
+  /api/v1/sync/finance/market:
+    post:
+      operationId: syncFinanceMarket
+      summary: Incremental whole-market financial sync
+      parameters:
+        - { name: quarters, in: query, schema: { type: integer, minimum: 1, maximum: 8 } }
+      responses:
+        '202': { description: Accepted }
+        '409': { description: Already running }
+
+  /api/v1/sync/finance/market/status:
+    get:
+      operationId: syncFinanceMarketStatus
+      summary: Whole-market financial sync state
+      responses:
+        '200': { description: Status and progress }
+
+  /api/v1/sync/minute:
+    post:
+      operationId: syncMinute
+      summary: Sync one symbol / one date / one freq minute bars
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string, pattern: '^[0-9]{6}\.(SH|SZ|BJ)$' } }
+        - { name: trade_date, in: query, required: true, schema: { type: string, pattern: '^[0-9]{8}$' } }
+        - { name: freq, in: query, schema: { type: string, enum: ['1m', '5m'], default: '5m' } }
+      responses:
+        '200': { description: source, received, accepted, total }
+        '502': { description: Upstream or write failure }
+
+  /api/v1/sync/minute/all:
+    post:
+      operationId: syncMinuteAll
+      summary: Whole-market minute sync (resumable ledger)
+      parameters:
+        - { name: freq, in: query, required: true, schema: { type: string, enum: ['1m', '5m'] } }
+        - { name: start_date, in: query, required: true, schema: { type: string } }
+        - { name: end_date, in: query, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '202': { description: Accepted with run id }
+        '409': { description: Already running }
+
+  /api/v1/sync/minute/all/retry:
+    post:
+      operationId: syncMinuteAllRetry
+      summary: Retry failed segments of a run
+      parameters:
+        - { name: run_id, in: query, schema: { type: string } }
+      responses:
+        '202': { description: Accepted }
+
+  /api/v1/sync/minute/all/status:
+    get:
+      operationId: syncMinuteAllStatus
+      summary: Whole-market minute sync state
+      responses:
+        '200': { description: Status and progress }
+
+  /api/v1/sync/minute/all/failures:
+    get:
+      operationId: syncMinuteAllFailures
+      summary: Failed items of a run
+      parameters:
+        - { name: run_id, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: Failure items }
+
+  /api/v1/sync/minute/all/details:
+    get:
+      operationId: syncMinuteAllDetails
+      summary: Per-day ledger and item detail of a run
+      parameters:
+        - { name: run_id, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: Ledger and item details }
+
+  /api/v1/records:
+    get:
+      operationId: listSyncRecords
+      summary: Unified sync ledger from meta.db
+      parameters:
+        - { name: kind, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: Sync run records }
+  /api/v1/records/{run_id}/logs:
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getRecordsRunIdLogs
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/settings/base-dictionary/item:
+    delete:
+      operationId: deleteSettingsBaseDictionaryItem
+      responses:
+        '200': { description: Delete configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/base-dictionary/item:
+    post:
+      operationId: postSettingsBaseDictionaryItem
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/data-sources:
+    put:
+      operationId: putSettingsDataSources
+      responses:
+        '200': { description: Update configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/data-sources/item:
+    delete:
+      operationId: deleteSettingsDataSourcesItem
+      responses:
+        '200': { description: Delete configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/data-sources/item:
+    post:
+      operationId: postSettingsDataSourcesItem
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/data-sources/test:
+    post:
+      operationId: postSettingsDataSourcesTest
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/dictionary/item:
+    delete:
+      operationId: deleteSettingsDictionaryItem
+      responses:
+        '200': { description: Delete configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/dictionary/item:
+    post:
+      operationId: postSettingsDictionaryItem
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/tool-routes:
+    put:
+      operationId: putSettingsToolRoutes
+      responses:
+        '200': { description: Update configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/settings/tool-routes/item:
+    put:
+      operationId: putSettingsToolRoutesItem
+      responses:
+        '200': { description: Update configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/config:
+    get:
+      operationId: getSyncConfig
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/sync/config:
+    put:
+      operationId: putSyncConfig
+      responses:
+        '200': { description: Update configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/etf/daily:
+    post:
+      operationId: postSyncEtfDaily
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/etf/history:
+    post:
+      operationId: postSyncEtfHistory
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/etf/history/status:
+    get:
+      operationId: getSyncEtfHistoryStatus
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/sync/etf/index-daily:
+    post:
+      operationId: postSyncEtfIndexDaily
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/etf/index-history:
+    post:
+      operationId: postSyncEtfIndexHistory
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/etf/index-history/status:
+    get:
+      operationId: getSyncEtfIndexHistoryStatus
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/sync/etf/status:
+    get:
+      operationId: getSyncEtfStatus
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/sync/etf/universe:
+    post:
+      operationId: postSyncEtfUniverse
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/market-scheduler:
+    get:
+      operationId: getSyncMarketScheduler
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/sync/tool/{tool_id}:
+    parameters:
+      - name: tool_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: postSyncToolToolId
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/sync/tools:
+    get:
+      operationId: getSyncTools
+      responses:
+        '200': { description: Read-only endpoint }

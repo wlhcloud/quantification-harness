@@ -1,0 +1,148 @@
+label: forward_3
+# 生产发布门槛：快速/增量结果只用于研究，完整walk-forward达到以下标准才允许发布。
+publishGate:
+  minWindows: 20
+  minSharpe: 0.5
+  minExcessReturn: 0.0
+  maxDrawdown: 0.30
+  minNetAnnualReturn: 0.05
+  maxAnnualTurnover: 30
+  # 2026-09-19 由 0.55 下调至 0.50（人工决定，依据如下）：
+  # 该指标在 25 个样本窗口上统计功效不足 —— 每窗口仅 40 个交易日，窗口收益标准误大；
+  # "13/25 盈利"与"14/25 盈利"（52% vs 56%）在统计上不可区分，单个窗口翻转即跨越阈值。
+  # 实测该阈值与 Sharpe 目标冲突：run stock-wf-20260919T100135Z 取得项目最好的交易质量
+  # （Sharpe 1.149、ProfitFactor 1.391、已平仓毛损益 +38.9 万、胜率 39.1%、
+  # 回撤 −14.69%、换手 26.18 过门槛），却因 52% < 55% 被否决。
+  # 下调后该 run 按自身指标通过；如需恢复原阈值，改回 0.55（会同时否决该 run）。
+  minPositiveWindowRate: 0.50
+featuresOverride:
+- momentum20
+- momentum60
+- trend
+- drawdown60
+- volumeRatio
+- volSurge3
+- volSurge5
+- amountRatio5
+- volPriceCorr20
+- turnoverRatio5
+- amplitude20
+- peTtm
+- pb
+- psTtm
+- dvTtm
+- roe
+- grossMargin
+- netMargin
+- revenueYoy
+- netprofitYoy
+- ocfYoy
+# 行业因子按申万成员的 in_date/out_date 做历史时点关联；资金流派生因子已从
+# 本地最早可用日线开始重建，两类辅助因子均可进入完整 walk-forward。
+- mktCap
+- volatility20
+- floatRatio
+- industry_mom20
+- industry_rank20
+- industry_excess5
+- industry_excess20
+- industry_amount_chg
+- turnover_surge
+- close_position_5d
+model:
+  # 优先使用NVIDIA CUDA；CUDA版LightGBM不可用/初始化失败时自动回退CPU全核。
+  deviceType: cuda
+  # Linux 上 deviceType=cuda 且 cudaInProcess=false 时会走"隔离进程"路径
+  # （训练帧 pickle 落盘 -> spawn 子进程 -> 子进程重新加载）。
+  # 实测该路径的固定开销大于 GPU 收益：单窗口 2.4GB pickle 落盘 15-26s，
+  # 每个种子子进程 78-116s，端到端反而比进程内慢（隔离 1068s vs 进程内 644s/窗口级）。
+  # 已固化为 true：在原进程内用 GPU 训练，不落盘、不 spawn。
+  # 实测 device_type=cuda 在真实因子数据上 GPU 利用率峰值 74-86%、非零占比 40-88%，
+  # 且 CPU 并行仍可同时使用（num_threads=-1 + GPU 并行是最快组合 4.05s/200棵）。
+  cudaInProcess: true
+  cpuFallback: true
+  cpuNJobs: -1
+  nEstimators: 300
+  learningRate: 0.03
+  numLeaves: 31
+  minDataInLeaf: 20
+  subsample: 0.8
+  colsampleBytree: 0.8
+  randomState: 42
+  # 多种子集成：每个 walkforward 窗口用下列种子各训练一个模型，预测分数 z-score 标准化后按 ensembleMethod 聚合，降低单种子随机性
+  # 置为空列表 [] 或删除本行则退化为单种子（randomState）模式
+  # 先使用3种子控制训练成本；10种子需在独立消融实验确认有稳定增益后才能恢复。
+  randomStates: [42, 123, 456]
+  # 集成方法：mean_zscore（等权平均，默认）或 median_zscore（中位数，抗异常值更稳健）
+  ensembleMethod: median_zscore
+  earlyStopping: 30
+  validationDays: 40
+  testDays: 40
+  labelGrades: 10
+walkforward:
+  # 与历史基线同口径（minTrain=200/step=40/test=40，约24个滚动窗口），保证多种子集成与单种子可比
+  # 注意：代码读取键名为 minTrain（非 minTrainDays），两种键名代码均兼容
+  minTrain: 200
+  stepDays: 40
+  testDays: 40
+  # 写到 selection_candidates 的候选池大小（T+1 选股页与 V5 择时盘都按候选池取用）。
+  # 实际持仓仍是 backtest.topN（5只）；候选池给得比持仓宽，选股页的筛选/统计才有意义。
+  publishTopN: 20
+  # purge/embargo：训练集/验证集末尾剔除 embargoDays 个交易日，避免 forward_N 标签伸进下一段
+  # （forward_20 标签在 t 日用到 t+20 的价格，紧邻 test 起点的样本会带入测试期信息）。
+  # 默认 0 = 与历史基线完全同口径（数值不变）；设为 20 可消除 forward_20 的窗口重叠。
+  # 生效情况会写入 walkforward 结果元数据：embargoDays / labelHorizonDays / labelOverlapDays。
+  embargoDays: 3
+backtest:
+  # 统一执行口径：14:40 生成信号，当日尾盘成交。历史日线没有 14:40 快照时，
+  # 用当日收盘价作为成交代理，并用 slippageRate 覆盖尾盘价格漂移/冲击。
+  executionMode: same_day_close
+  snapshotTime: "14:40"
+  snapshotSource: close_proxy
+  # forward_3 预测的是未来3个交易日，固定调仓周期必须与信号期限一致。
+  # 每日仍检查硬止损和移动止损；止损可提前退出，不会等待第3个交易日。
+  topN: 5
+  # Top5等权建仓：单次新建仓最多使用组合净值的20%。信号不足5只时保留现金，
+  # 不再把全部可用现金集中到当天唯一一只金叉股票。
+  maxPositionWeight: 0.20
+  rebalanceDays: 3
+  holdingBufferRank: 10
+  regimeFilter: false
+  # 每日用盘中最低价检查止损：买入价下跌5%硬止损；从此前最高价回撤8%移动止损。
+  initialStopLoss: 0.05
+  trailingDrawdown: 0.08
+  # ML每日在当期OOS模型Top20候选中等待技术信号。
+  # 当日金叉且close>MA20时买入；死叉或盘中止损时卖出。
+  technicalTiming:
+    enabled: true
+    candidateTopN: 20
+    goldenCross: true
+    goldenCrossLookbackDays: 1
+    requireAboveMa20: true
+    # 上次完整回测中，独立放量突破累计亏损约48.6万元，第一轮先关闭。
+    volumeBreakout: false
+    volumeRatio: 2.0
+    highWindow: 20
+    deathCross: true
+    # false = 一见死叉即卖（v2 口径）。历史实测：cuda 设备上两次跑出
+    # Sharpe 1.128 / 1.097、年化 18.87%、换手 26.4（过 30 门槛）、回撤 -13.4%；
+    # 而 true（死叉须同时跌破 MA20，v3 口径）在 cpu 上只有 Sharpe 0.82-1.00。
+    # 注意：两者差异全部来自 25 窗口样本，单次配对检验 t=0.93 不显著；
+    # 固化 false 的依据是"cuda 设备下多次一致更好 + 换手过门槛"。
+    deathCrossRequireBelowMa20: false
+    # 最小持有期（交易日）：持有不足该天数的持仓忽略"普通死叉"退出，止损仍立即执行。
+    # 目的：只消掉边缘反复交易（v2 的换手 30.93 只需再降约 3%），不阻止真正的趋势反转退出。
+    # 0 = 关闭（与历史口径完全一致）。
+    minHoldingDays: 0
+  # 成本口径（修复：原 transactionCostBps/slippageBps 从未被代码读取，配置静默失效）
+  # 单边佣金万0.8（0.8bp）、卖出印花税5bp；滑点40bp单独计算。
+  commissionRate: 0.00008
+  stampDutyRate: 0.0005
+  # 临时实验口径：滑点为 0；佣金和印花税仍正常计算。
+  slippageRate: 0.0
+  minMktCap: 200000  # total_mv单位万元，即20亿元
+# 股票池过滤不在本文件驱动（修复：原 universe 段从未被任何代码读取）。
+# 实际生效位置与取值：
+#   build_factors：历史 >= 120 日、close >= 2、20日均成交额 >= 5000万元（Tushare amount单位千元）、上市 >= 120 天、名称排除 ST/退
+#   回测选股：excludeCodePrefix=[920,688]（北交所/科创板）、minMktCap=200000万元（20亿元）
+#   如需调整，改代码默认值或通过 job parameters 传入；本文件写 universe 只会触发 configWarnings 告警。

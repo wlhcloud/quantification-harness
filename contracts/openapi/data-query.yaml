@@ -1,0 +1,142 @@
+openapi: 3.1.0
+info:
+  title: DSH Data Query Service
+  version: 0.2.0
+servers:
+  - url: http://127.0.0.1:9103
+paths:
+  /api/v1/health:
+    get:
+      operationId: queryHealth
+      responses:
+        '200': { description: read-only status }
+
+  /api/v1/datasets:
+    get:
+      operationId: listDatasets
+      summary: Synthesized dataset summaries (daily/minute/factor)
+      responses:
+        '200': { description: Dataset summaries }
+
+  /api/v1/datasets/minute/{freq}/quality:
+    get:
+      operationId: minuteQuality
+      parameters:
+        - { name: freq, in: path, required: true, schema: { type: string, enum: ['1m', '5m'] } }
+      responses:
+        '200': { description: Per-status day counts and per-source records }
+
+  /api/v1/datasets/minute/{freq}/governance:
+    get:
+      operationId: minuteGovernance
+      parameters:
+        - { name: freq, in: path, required: true, schema: { type: string, enum: ['1m', '5m'] } }
+        - { name: dates, in: query, schema: { type: integer, minimum: 3, maximum: 20, default: 8 } }
+        - { name: codes, in: query, schema: { type: integer, minimum: 1, maximum: 20, default: 4 } }
+      responses:
+        '200': { description: Governance matrix (cells + issues) }
+
+  /api/v1/minute-bars:
+    get:
+      operationId: minuteBars
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: start, in: query, required: true, schema: { type: string } }
+        - { name: end, in: query, required: true, schema: { type: string } }
+        - { name: freq, in: query, schema: { type: string, enum: ['1m', '5m'], default: '5m' } }
+        - { name: limit, in: query, schema: { type: integer, default: 500 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200': { description: Minute bars }
+
+  /api/v1/securities:
+    get:
+      operationId: securities
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200': { description: Security master matches }
+
+  /api/v1/meta/datasets:
+    get:
+      operationId: metaDatasets
+      summary: Dataset catalog from meta.db (Python-owned)
+      responses:
+        '200': { description: Catalog records }
+
+  /api/v1/meta/data-sources:
+    get:
+      operationId: metaDataSources
+      summary: Data source configs from meta.db
+      responses:
+        '200': { description: Source records }
+
+  /api/v1/meta/tool-routes:
+    get:
+      operationId: metaToolRoutes
+      summary: Tool routes from meta.db
+      responses:
+        '200': { description: Route records }
+
+  /api/v1/meta/dictionary:
+    get:
+      operationId: metaDictionary
+      summary: Dictionary (datasets/fields/mappings/types/items) from meta.db
+      responses:
+        '200': { description: Dictionary records }
+  /api/v1/backtest/latest:
+    get:
+      operationId: getBacktestLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/backtest/periods:
+    get:
+      operationId: getBacktestPeriods
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/backtest/short/latest:
+    get:
+      operationId: getBacktestShortLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/backtest/short/trades:
+    get:
+      operationId: getBacktestShortTrades
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf/bars:
+    get:
+      operationId: getEtfBars
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf/universe:
+    get:
+      operationId: getEtfUniverse
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/index/bars:
+    get:
+      operationId: getIndexBars
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/market/overview:
+    get:
+      operationId: getMarketOverview
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/selection:
+    get:
+      operationId: getSelection
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/selection/models:
+    get:
+      operationId: getSelectionModels
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock/technical:
+    get:
+      operationId: getStockTechnical
+      responses:
+        '200': { description: Read-only endpoint }

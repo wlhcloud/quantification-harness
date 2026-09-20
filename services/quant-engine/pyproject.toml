@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dsh-quant-engine"
+version = "0.1.0"
+description = "Feature, factor, training, backtest, and inference engine for DSH Quant"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "pydantic-settings>=2.7,<3",
+  # duckdb / polars 曾在此声明但**全仓零引用**（服务、脚本、归档脚本都没有 import），
+  # 纯属当年分析阶段留下的重依赖：已移除。确实需要时再加回来（并给出用途）。
+  "pyarrow>=19,<21",
+  "lightgbm>=4.6,<5",
+  "scikit-learn>=1.6,<2",
+  "numpy>=2,<3",
+  # pandas 被 etf_quant/factors.py、stock_ml 等直接 import，此前漏声明：
+  # 全新环境 `pip install -e .` 后 import 会失败（CI 必挂）
+  "pandas>=2.2,<3",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.28,<1", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quant_engine"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

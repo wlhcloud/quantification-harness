@@ -1,0 +1,13 @@
+id: lightgbm-t1
+version: 1
+status: draft
+label: t1_close_return
+featureSet: daily-v1
+split:
+  method: walk_forward
+  trainMonths: 12
+  validationMonths: 3
+  testMonths: 3
+resources:
+  maxWorkers: 1
+  device: cpu

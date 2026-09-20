@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Q·LAB TERMINAL — 原型 v4 液态玻璃 · 青色</title>
+<style>
+/* ============================================================
+   v4 — Bloomberg 终端布局 × 液态玻璃拟态
+   ============================================================ */
+:root {
+  /* 背景 */
+  --bg-deep: #050508;
+
+  /* 玻璃面板 */
+  --glass-bg: rgba(12, 14, 22, 0.55);
+  --glass-bg-strong: rgba(14, 16, 26, 0.7);
+  --glass-bg-light: rgba(18, 20, 32, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-bright: rgba(255, 255, 255, 0.16);
+  --glass-border-amber: rgba(0, 212, 255, 0.25);
+  --glass-blur: blur(24px) saturate(1.6);
+  --glass-blur-strong: blur(32px) saturate(1.8);
+
+  /* 文字 */
+  --text: #e0e0e8;
+  --text-dim: #8888a0;
+  --text-faint: #505068;
+
+  /* 琥珀金 */
+  --amber: #00d4ff;
+  --amber-dim: #0891b2;
+  --amber-faint: rgba(0, 212, 255, 0.12);
+  --amber-glow: rgba(0, 212, 255, 0.5);
+
+  /* 涨跌 */
+  --up: #00e6a0;
+  --down: #ff5577;
+
+  /* 状态 */
+  --ok: #00e6a0;
+  --warn: #ffc107;
+  --err: #ff5577;
+  --info: #40c4ff;
+
+  /* 字体 */
+  --mono: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+
+  --xs: 10px; --sm: 11px; --md: 12px; --lg: 14px;
+  --xl: 16px; --xxl: 20px; --huge: 28px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; width: 100%; }
+body {
+  font-family: var(--mono);
+  font-size: var(--md);
+  color: var(--text);
+  background: var(--bg-deep);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+::selection { background: var(--amber); color: #000; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+.num { font-variant-numeric: tabular-nums; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.amber { color: var(--amber); }
+.dim { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+
+/* ============================================================
+   液态背景层 — 流动光斑
+   ============================================================ */
+.liquid-bg {
+  position: fixed; inset: 0; z-index: 0;
+  overflow: hidden; pointer-events: none;
+}
+.blob {
+  position: absolute; border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.blob-1 {
+  width: 520px; height: 520px;
+  background: radial-gradient(circle, rgba(0, 212, 255,0.35), transparent 70%);
+  top: -120px; right: 10%;
+  animation: float1 18s ease-in-out infinite;
+}
+.blob-2 {
+  width: 480px; height: 480px;
+  background: radial-gradient(circle, rgba(64,196,255,0.28), transparent 70%);
+  bottom: -100px; left: 15%;
+  animation: float2 22s ease-in-out infinite;
+}
+.blob-3 {
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(168,85,247,0.25), transparent 70%);
+  top: 40%; left: 50%;
+  animation: float3 26s ease-in-out infinite;
+}
+.blob-4 {
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(0,230,160,0.2), transparent 70%);
+  top: 10%; left: -80px;
+  animation: float1 20s ease-in-out infinite reverse;
+}
+@keyframes float1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(60px, 40px) scale(1.1); }
+  66% { transform: translate(-30px, 60px) scale(0.95); }
+}
+@keyframes float2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-50px, -40px) scale(1.05); }
+  66% { transform: translate(40px, -60px) scale(0.9); }
+}
+@keyframes float3 {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-30%, -60%) scale(1.2); }
+}
+
+/* 细网格叠加 */
+.liquid-bg::after {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at center, black 20%, transparent 85%);
+}
+
+/* 噪点纹理 */
+.noise {
+  position: fixed; inset: 0; z-index: 0;
+  opacity: 0.03; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   玻璃面板基类
+   ============================================================ */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  position: relative;
+  overflow: hidden;
+}
+.glass::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  pointer-events: none;
+}
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+}
+
+/* ============================================================
+   整体布局
+   ============================================================ */
+.terminal {
+  display: flex; flex-direction: column;
+  height: 100vh; width: 100vw;
+  position: relative; z-index: 1;
+  padding: 10px;
+  gap: 10px;
+}
+
+/* ---- 顶部状态条 ---- */
+.topbar {
+  height: 32px; flex-shrink: 0;
+  border-radius: 10px;
+  display: flex; align-items: center;
+  font-size: var(--xs);
+  padding: 0 14px;
+  gap: 0;
+}
+.topbar .seg {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 10px; height: 100%;
+}
+.topbar .seg.host {
+  border-right: 1px solid var(--glass-border);
+}
+.topbar .seg.host b { color: var(--amber); font-size: var(--sm); }
+.topbar .tab {
+  padding: 0 12px; height: 100%;
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; color: var(--text-dim);
+  border-right: 1px solid var(--glass-border);
+  transition: all 0.15s;
+  position: relative;
+}
+.topbar .tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.topbar .tab.active {
+  color: var(--amber);
+  background: var(--amber-faint);
+}
+.topbar .tab.active::after {
+  content: ""; position: absolute; bottom: 0; left: 15%; right: 15%; height: 1px;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber-glow);
+}
+.topbar .tab .idx { color: var(--text-faint); font-size: 9px; }
+.topbar .tab.active .idx { color: var(--amber-dim); }
+.topbar .spacer { flex: 1; }
+.topbar .right-seg {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; height: 100%;
+  border-left: 1px solid var(--glass-border);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.dot.err { background: var(--err); box-shadow: 0 0 6px var(--err); }
+.topbar .clock { color: var(--amber); font-weight: 600; font-size: var(--sm); }
+
+/* ---- 主工作区 ---- */
+.workspace {
+  flex: 1; display: flex;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* 左侧符号列表 */
+.symbol-list {
+  width: 210px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  height: 30px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: var(--xs);
+  letter-spacing: 1px;
+}
+.panel-header .title { color: var(--amber); font-weight: 700; }
+.panel-header .title .num-prefix { color: var(--amber-dim); margin-right: 6px; opacity: 0.7; }
+.panel-header .meta { color: var(--text-faint); }
+
+.symbol-items { flex: 1; overflow-y: auto; padding: 4px 0; }
+.symbol-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  margin: 0 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-size: var(--sm);
+}
+.symbol-item:hover { background: rgba(255,255,255,0.05); }
+.symbol-item.active {
+  background: var(--amber-faint);
+  border: 1px solid var(--glass-border-amber);
+  padding: 6px 11px;
+  box-shadow: 0 0 16px rgba(0, 212, 255,0.1);
+}
+.symbol-item .code { color: var(--text-dim); font-size: var(--xs); width: 48px; flex-shrink: 0; }
+.symbol-item.active .code { color: var(--amber); }
+.symbol-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symbol-item .price { text-align: right; }
+.symbol-item .price b { display: block; font-size: var(--sm); }
+.symbol-item .price span { font-size: 9px; display: block; }
+
+/* 中央主区域 */
+.main-area {
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0;
+  gap: 10px;
+}
+
+/* 报价条 */
+.quote-strip {
+  height: 48px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 16px;
+}
+.quote-strip .sym {
+  display: flex; align-items: baseline; gap: 10px;
+}
+.quote-strip .sym .code { font-size: var(--xl); color: var(--amber); font-weight: 700; }
+.quote-strip .sym .name { font-size: var(--sm); color: var(--text-dim); }
+.quote-strip .price { font-size: var(--huge); font-weight: 700; }
+.quote-strip .chg { font-size: var(--lg); }
+.quote-strip .chg .arrow { font-size: var(--sm); margin-right: 4px; }
+.quote-strip .stats { display: flex; gap: 16px; margin-left: auto; }
+.quote-strip .stat { text-align: right; }
+.quote-strip .stat span { display: block; font-size: 9px; color: var(--text-faint); letter-spacing: 1px; }
+.quote-strip .stat b { font-size: var(--sm); font-weight: 500; }
+
+/* 图表区 */
+.chart-section {
+  flex: 1; display: flex; flex-direction: column;
+  border-radius: 12px;
+  min-height: 0; overflow: hidden;
+}
+.chart-toolbar {
+  height: 32px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: var(--xs);
+}
+.chart-toolbar .group {
+  display: flex; align-items: center;
+  border-right: 1px solid var(--glass-border);
+  height: 100%;
+  padding-right: 10px; margin-right: 10px;
+}
+.chart-toolbar .group:last-child { border-right: none; }
+.chart-toolbar label { color: var(--text-faint); margin-right: 6px; font-size: 9px; letter-spacing: 1px; }
+.tf-btn {
+  padding: 3px 8px; cursor: pointer;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: all 0.1s;
+  font-family: var(--mono);
+  font-size: var(--xs);
+  background: transparent;
+}
+.tf-btn:hover { color: var(--text); }
+.tf-btn.active {
+  color: var(--amber);
+  border-color: var(--glass-border-amber);
+  background: var(--amber-faint);
+}
+.chart-toolbar .spacer { flex: 1; }
+.chart-toolbar .indicator {
+  color: var(--text-dim); padding: 0 8px; cursor: pointer;
+  transition: color 0.1s;
+}
+.chart-toolbar .indicator:hover { color: var(--amber); }
+.chart-toolbar .indicator.on { color: var(--amber); }
+
+.chart-canvas {
+  flex: 1; position: relative; overflow: hidden;
+}
+.chart-canvas svg { width: 100%; height: 100%; display: block; }
+
+/* 右侧信息面板 */
+.info-panel {
+  width: 270px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.info-section {
+  border-bottom: 1px solid var(--glass-border);
+}
+.info-section:last-child { border-bottom: none; }
+.info-body { padding: 8px 12px; font-size: var(--sm); }
+.kv-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 3px 0;
+}
+.kv-row .k { color: var(--text-dim); font-size: var(--xs); }
+.kv-row .v { font-weight: 500; }
+.kv-row.highlight {
+  background: var(--amber-faint);
+  margin: 2px -12px; padding: 5px 12px;
+  border-left: 2px solid var(--amber);
+  border-right: 2px solid transparent;
+}
+.kv-row.highlight .k { color: var(--amber); }
+
+.signal-list { padding: 4px 0; }
+.signal-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: var(--xs);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.signal-item:hover { background: rgba(255,255,255,0.04); }
+.signal-item .sig-type {
+  padding: 1px 5px; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.5px; flex-shrink: 0;
+  border-radius: 3px;
+}
+.sig-type.buy { background: rgba(0,230,160,0.12); color: var(--up); border: 1px solid rgba(0,230,160,0.25); }
+.sig-type.sell { background: rgba(255,85,119,0.12); color: var(--down); border: 1px solid rgba(255,85,119,0.25); }
+.sig-type.watch { background: var(--amber-faint); color: var(--amber); border: 1px solid var(--glass-border-amber); }
+.signal-item .sig-code { width: 48px; flex-shrink: 0; }
+.signal-item .sig-name { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-item .sig-score { color: var(--amber); font-weight: 700; }
+
+/* ---- 底部数据条 ---- */
+.bottom-strip {
+  height: 170px; flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  overflow: hidden;
+}
+.bottom-panel {
+  flex: 1; display: flex; flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  min-width: 0;
+}
+.bottom-panel.wide { flex: 1.6; }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--xs); }
+.data-table th {
+  text-align: left; padding: 5px 8px;
+  color: var(--text-faint);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  font-size: 9px;
+  border-bottom: 1px solid var(--glass-border);
+  position: sticky; top: 0;
+  background: rgba(12,14,22,0.8);
+  backdrop-filter: blur(10px);
+}
+.data-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+.data-table tr { cursor: pointer; transition: background 0.08s; }
+.data-table tr:hover { background: rgba(255,255,255,0.04); }
+.data-table tr.active { background: var(--amber-faint); }
+.data-table tr.active td { color: var(--amber); }
+.data-table .num-col { text-align: right; }
+.table-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
+
+/* ---- 底部命令行 ---- */
+.cmdline {
+  height: 32px; flex-shrink: 0;
+  border-radius: 10px;
+  display: flex; align-items: center;
+  padding: 0 14px;
+  font-size: var(--sm);
+  gap: 10px;
+}
+.cmdline .prompt {
+  color: var(--amber); font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.cmdline .prompt .mode {
+  font-size: 9px; padding: 2px 7px;
+  background: var(--amber-faint); color: var(--amber);
+  border: 1px solid var(--glass-border-amber);
+  letter-spacing: 1px;
+  border-radius: 4px;
+}
+.cmdline input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: var(--mono); font-size: var(--sm);
+  caret-color: var(--amber);
+}
+.cmdline input::placeholder { color: var(--text-faint); }
+.cmdline .hints {
+  display: flex; gap: 12px;
+  font-size: 9px; color: var(--text-faint);
+}
+.cmdline .hints kbd {
+  padding: 1px 5px; background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border); color: var(--text-dim);
+  font-family: var(--mono); font-size: 9px;
+  border-radius: 3px;
+}
+
+/* 图表内样式 */
+.crosshair-h { stroke: rgba(0, 212, 255,0.35); stroke-width: 1; stroke-dasharray: 3 3; }
+.crosshair-v { stroke: rgba(0, 212, 255,0.35); stroke-width: 1; stroke-dasharray: 3 3; }
+.grid-line { stroke: rgba(255,255,255,0.04); stroke-width: 1; }
+.grid-line-major { stroke: rgba(255,255,255,0.07); stroke-width: 1; }
+.axis-text { fill: #666; font-size: 9px; font-family: var(--mono); }
+.axis-text-amber { fill: var(--amber); font-size: 9px; font-family: var(--mono); }
+
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+/* 入场动画 */
+@keyframes glassIn {
+  from { opacity: 0; transform: translateY(8px); backdrop-filter: blur(0px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.glass { animation: glassIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.topbar { animation-delay: 0.05s; }
+.symbol-list { animation-delay: 0.1s; }
+.quote-strip { animation-delay: 0.15s; }
+.chart-section { animation-delay: 0.2s; }
+.info-panel { animation-delay: 0.25s; }
+.bottom-strip .bottom-panel:nth-child(1) { animation-delay: 0.3s; }
+.bottom-strip .bottom-panel:nth-child(2) { animation-delay: 0.33s; }
+.bottom-strip .bottom-panel:nth-child(3) { animation-delay: 0.36s; }
+.bottom-strip .bottom-panel:nth-child(4) { animation-delay: 0.39s; }
+.cmdline { animation-delay: 0.42s; }
+
+</style>
+</head>
+<body>
+
+<!-- 液态背景 -->
+<div class="liquid-bg">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="blob blob-4"></div>
+</div>
+<div class="noise"></div>
+
+<div class="terminal">
+
+  <!-- 顶部状态条 -->
+  <header class="topbar glass glass-strong">
+    <div class="seg host">
+      <b>Q·LAB</b>
+      <span class="dim">quant-terminal</span>
+    </div>
+    <div class="tab active"><span class="idx">01</span>总览</div>
+    <div class="tab"><span class="idx">02</span>选股</div>
+    <div class="tab"><span class="idx">03</span>回测</div>
+    <div class="tab"><span class="idx">04</span>模拟盘</div>
+    <div class="tab"><span class="idx">05</span>ETF</div>
+    <div class="tab"><span class="idx">06</span>数据</div>
+    <div class="tab"><span class="idx">07</span>同步</div>
+    <div class="tab"><span class="idx">08</span>模型</div>
+    <div class="spacer"></div>
+    <div class="right-seg">
+      <span class="dot ok"></span><span class="dim">SYNC</span>
+      <span class="dot ok"></span><span class="dim">ENGINE</span>
+      <span class="dot warn"></span><span class="dim">QUERY</span>
+    </div>
+    <div class="right-seg">
+      <span class="dim">2026-09-13</span>
+      <span class="clock num" id="clock">14:32:08</span>
+    </div>
+    <div class="right-seg">
+      <span class="dim">admin@research</span>
+    </div>
+  </header>
+
+  <!-- 主工作区 -->
+  <div class="workspace">
+
+    <!-- 左侧符号列表 -->
+    <aside class="symbol-list glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[01]</span>自选股</span>
+        <span class="meta">12</span>
+      </div>
+      <div class="symbol-items">
+        <div class="symbol-item active">
+          <span class="code num">002531</span>
+          <span class="name">天顺风能</span>
+          <span class="price"><b class="up num">12.84</b><span class="up num">+9.98%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">002202</span>
+          <span class="name">金风科技</span>
+          <span class="price"><b class="up num">8.62</b><span class="up num">+3.24%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">300274</span>
+          <span class="name">阳光电源</span>
+          <span class="price"><b class="up num">78.50</b><span class="up num">+2.18%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">300750</span>
+          <span class="name">宁德时代</span>
+          <span class="price"><b class="down num">186.20</b><span class="down num">-1.05%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">002594</span>
+          <span class="name">比亚迪</span>
+          <span class="price"><b class="up num">245.60</b><span class="up num">+0.87%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">601012</span>
+          <span class="name">隆基绿能</span>
+          <span class="price"><b class="down num">18.35</b><span class="down num">-2.31%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">600036</span>
+          <span class="name">招商银行</span>
+          <span class="price"><b class="up num">34.28</b><span class="up num">+0.56%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">601318</span>
+          <span class="name">中国平安</span>
+          <span class="price"><b class="down num">42.15</b><span class="down num">-0.82%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">000858</span>
+          <span class="name">五粮液</span>
+          <span class="price"><b class="up num">128.40</b><span class="up num">+1.23%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">600519</span>
+          <span class="name">贵州茅台</span>
+          <span class="price"><b class="down num">1,528.00</b><span class="down num">-0.45%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">300059</span>
+          <span class="name">东方财富</span>
+          <span class="price"><b class="up num">14.62</b><span class="up num">+4.12%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">601899</span>
+          <span class="name">紫金矿业</span>
+          <span class="price"><b class="up num">17.85</b><span class="up num">+2.87%</span></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中央主区域 -->
+    <main class="main-area">
+
+      <!-- 报价条 -->
+      <div class="quote-strip glass glass-strong">
+        <div class="sym">
+          <span class="code num">002531</span>
+          <span class="name">天顺风能 · 风电设备 · 深市</span>
+        </div>
+        <span class="price up num">12.84</span>
+        <span class="chg up num"><span class="arrow">▲</span>+1.16  +9.98%</span>
+        <div class="stats">
+          <div class="stat"><span>今开</span><b class="num">11.80</b></div>
+          <div class="stat"><span>最高</span><b class="up num">12.84</b></div>
+          <div class="stat"><span>最低</span><b class="num">11.68</b></div>
+          <div class="stat"><span>成交量</span><b class="num">286.5万手</b></div>
+          <div class="stat"><span>成交额</span><b class="num">35.2亿</b></div>
+          <div class="stat"><span>换手率</span><b class="amber num">16.8%</b></div>
+          <div class="stat"><span>量比</span><b class="up num">3.42</b></div>
+        </div>
+      </div>
+
+      <!-- 图表区 -->
+      <section class="chart-section glass">
+        <div class="chart-toolbar">
+          <div class="group">
+            <label>周期</label>
+            <button class="tf-btn">1m</button>
+            <button class="tf-btn active">5m</button>
+            <button class="tf-btn">15m</button>
+            <button class="tf-btn">30m</button>
+            <button class="tf-btn">60m</button>
+            <button class="tf-btn">日K</button>
+            <button class="tf-btn">周K</button>
+          </div>
+          <div class="group">
+            <label>主图</label>
+            <button class="tf-btn active">K线</button>
+            <button class="tf-btn">收盘线</button>
+          </div>
+          <div class="group">
+            <label>指标</label>
+            <span class="indicator on">MA(5,10,20)</span>
+            <span class="indicator on">VOL</span>
+            <span class="indicator">MACD</span>
+            <span class="indicator">KDJ</span>
+          </div>
+          <div class="spacer"></div>
+          <div class="group" style="border-right:none">
+            <span class="dim">前复权</span>
+            <span class="faint">|</span>
+            <span class="dim">2026-09-13 14:32</span>
+          </div>
+        </div>
+
+        <div class="chart-canvas">
+          <svg viewBox="0 0 900 420" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="volUp" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#00e6a0" stop-opacity="0.5"/>
+                <stop offset="100%" stop-color="#00e6a0" stop-opacity="0.05"/>
+              </linearGradient>
+              <linearGradient id="volDown" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#ff5577" stop-opacity="0.5"/>
+                <stop offset="100%" stop-color="#ff5577" stop-opacity="0.05"/>
+              </linearGradient>
+            </defs>
+
+            <!-- 网格 -->
+            <line x1="50" y1="30" x2="860" y2="30" class="grid-line-major"/>
+            <line x1="50" y1="80" x2="860" y2="80" class="grid-line"/>
+            <line x1="50" y1="130" x2="860" y2="130" class="grid-line-major"/>
+            <line x1="50" y1="180" x2="860" y2="180" class="grid-line"/>
+            <line x1="50" y1="230" x2="860" y2="230" class="grid-line-major"/>
+            <line x1="50" y1="280" x2="860" y2="280" class="grid-line"/>
+            <line x1="218" y1="30" x2="218" y2="300" class="grid-line"/>
+            <line x1="385" y1="30" x2="385" y2="300" class="grid-line"/>
+            <line x1="552" y1="30" x2="552" y2="300" class="grid-line"/>
+
+            <!-- 价格轴 -->
+            <text x="865" y="33" class="axis-text">13.20</text>
+            <text x="865" y="83" class="axis-text">12.90</text>
+            <text x="865" y="133" class="axis-text-amber">12.60</text>
+            <text x="865" y="183" class="axis-text">12.30</text>
+            <text x="865" y="233" class="axis-text">12.00</text>
+            <text x="865" y="283" class="axis-text">11.70</text>
+
+            <!-- 涨跌幅轴 -->
+            <text x="45" y="33" text-anchor="end" class="axis-text" fill="#00e6a0">+12.8%</text>
+            <text x="45" y="83" text-anchor="end" class="axis-text" fill="#00e6a0">+10.3%</text>
+            <text x="45" y="133" text-anchor="end" class="axis-text-amber">+7.7%</text>
+            <text x="45" y="183" text-anchor="end" class="axis-text">+5.1%</text>
+            <text x="45" y="233" text-anchor="end" class="axis-text">+2.6%</text>
+            <text x="45" y="283" text-anchor="end" class="axis-text" fill="#ff5577">0.0%</text>
+
+            <!-- 时间轴 -->
+            <text x="60" y="410" class="axis-text">09:30</text>
+            <text x="200" y="410" class="axis-text">10:00</text>
+            <text x="340" y="410" class="axis-text">10:30</text>
+            <text x="480" y="410" class="axis-text">11:00/13:00</text>
+            <text x="620" y="410" class="axis-text">13:30</text>
+            <text x="760" y="410" class="axis-text">14:00</text>
+            <text x="855" y="410" text-anchor="end" class="axis-text">14:30</text>
+
+            <!-- K线 -->
+            <rect x="60" y="268" width="8" height="12" fill="#ff5577"/>
+            <line x1="64" y1="260" x2="64" y2="284" stroke="#ff5577" stroke-width="1"/>
+            <rect x="76" y="262" width="8" height="16" fill="#00e6a0"/>
+            <line x1="80" y1="255" x2="80" y2="282" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="92" y="258" width="8" height="14" fill="#00e6a0"/>
+            <line x1="96" y1="250" x2="96" y2="276" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="108" y="255" width="8" height="18" fill="#ff5577"/>
+            <line x1="112" y1="248" x2="112" y2="278" stroke="#ff5577" stroke-width="1"/>
+            <rect x="124" y="250" width="8" height="16" fill="#00e6a0"/>
+            <line x1="128" y1="242" x2="128" y2="270" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="140" y="246" width="8" height="14" fill="#00e6a0"/>
+            <line x1="144" y1="240" x2="144" y2="264" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="156" y="240" width="8" height="18" fill="#ff5577"/>
+            <line x1="160" y1="232" x2="160" y2="262" stroke="#ff5577" stroke-width="1"/>
+            <rect x="172" y="236" width="8" height="16" fill="#00e6a0"/>
+            <line x1="176" y1="228" x2="176" y2="256" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="188" y="228" width="8" height="14" fill="#00e6a0"/>
+            <line x1="192" y1="220" x2="192" y2="246" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="204" y="222" width="8" height="16" fill="#00e6a0"/>
+            <line x1="208" y1="214" x2="208" y2="242" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="220" y="216" width="8" height="18" fill="#ff5577"/>
+            <line x1="224" y1="208" x2="224" y2="238" stroke="#ff5577" stroke-width="1"/>
+            <rect x="236" y="210" width="8" height="14" fill="#00e6a0"/>
+            <line x1="240" y1="202" x2="240" y2="228" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="252" y="204" width="8" height="16" fill="#00e6a0"/>
+            <line x1="256" y1="196" x2="256" y2="224" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="268" y="198" width="8" height="14" fill="#ff5577"/>
+            <line x1="272" y1="190" x2="272" y2="216" stroke="#ff5577" stroke-width="1"/>
+            <rect x="284" y="192" width="8" height="16" fill="#00e6a0"/>
+            <line x1="288" y1="184" x2="288" y2="212" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="300" y="186" width="8" height="18" fill="#00e6a0"/>
+            <line x1="304" y1="176" x2="304" y2="208" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="316" y="180" width="8" height="14" fill="#ff5577"/>
+            <line x1="320" y1="172" x2="320" y2="198" stroke="#ff5577" stroke-width="1"/>
+            <rect x="332" y="174" width="8" height="16" fill="#00e6a0"/>
+            <line x1="336" y1="166" x2="336" y2="194" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="348" y="168" width="8" height="14" fill="#00e6a0"/>
+            <line x1="352" y1="160" x2="352" y2="186" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="364" y="162" width="8" height="16" fill="#ff5577"/>
+            <line x1="368" y1="154" x2="368" y2="182" stroke="#ff5577" stroke-width="1"/>
+            <rect x="380" y="156" width="8" height="14" fill="#00e6a0"/>
+            <line x1="384" y1="148" x2="384" y2="174" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="396" y="150" width="8" height="16" fill="#00e6a0"/>
+            <line x1="400" y1="142" x2="400" y2="170" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- 午间缺口 -->
+            <line x1="420" y1="30" x2="420" y2="300" stroke="rgba(0, 212, 255,0.15)" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="425" y="45" class="axis-text-amber" font-size="8">午间休市</text>
+
+            <!-- 下午拉升 -->
+            <rect x="440" y="140" width="8" height="18" fill="#00e6a0"/>
+            <line x1="444" y1="128" x2="444" y2="162" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="456" y="128" width="8" height="20" fill="#00e6a0"/>
+            <line x1="460" y1="114" x2="460" y2="152" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="472" y="114" width="8" height="18" fill="#ff5577"/>
+            <line x1="476" y1="102" x2="476" y2="136" stroke="#ff5577" stroke-width="1"/>
+            <rect x="488" y="102" width="8" height="20" fill="#00e6a0"/>
+            <line x1="492" y1="88" x2="492" y2="126" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="504" y="88" width="8" height="16" fill="#00e6a0"/>
+            <line x1="508" y1="76" x2="508" y2="108" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="520" y="76" width="8" height="18" fill="#ff5577"/>
+            <line x1="524" y1="64" x2="524" y2="98" stroke="#ff5577" stroke-width="1"/>
+            <rect x="536" y="64" width="8" height="16" fill="#00e6a0"/>
+            <line x1="540" y1="52" x2="540" y2="84" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="552" y="52" width="8" height="14" fill="#00e6a0"/>
+            <line x1="556" y1="42" x2="556" y2="70" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="568" y="44" width="8" height="16" fill="#ff5577"/>
+            <line x1="572" y1="34" x2="572" y2="64" stroke="#ff5577" stroke-width="1"/>
+            <rect x="584" y="36" width="8" height="14" fill="#00e6a0"/>
+            <line x1="588" y1="28" x2="588" y2="54" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- 涨停封板 -->
+            <rect x="600" y="30" width="8" height="12" fill="#00e6a0"/>
+            <line x1="604" y1="24" x2="604" y2="46" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="616" y="28" width="8" height="10" fill="#00e6a0"/>
+            <line x1="620" y1="24" x2="620" y2="42" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="632" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="636" y1="24" x2="636" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="648" y="28" width="8" height="8" fill="#ff5577"/>
+            <line x1="652" y1="24" x2="652" y2="40" stroke="#ff5577" stroke-width="1"/>
+            <rect x="664" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="668" y1="24" x2="668" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="680" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="684" y1="24" x2="684" y2="40" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- 涨停标记 -->
+            <rect x="696" y="16" width="52" height="18" rx="3" fill="rgba(0,230,160,0.1)" stroke="rgba(0,230,160,0.35)"/>
+            <text x="722" y="28" text-anchor="middle" fill="#00e6a0" font-size="9" font-family="monospace" font-weight="700">涨停 12.84</text>
+
+            <!-- 剩余K线 -->
+            <rect x="700" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="704" y1="24" x2="704" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="716" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="720" y1="24" x2="720" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="732" y="28" width="8" height="8" fill="#ff5577"/>
+            <line x1="736" y1="24" x2="736" y2="40" stroke="#ff5577" stroke-width="1"/>
+            <rect x="748" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="752" y1="24" x2="752" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="764" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="768" y1="24" x2="768" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="780" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="784" y1="24" x2="784" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="796" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="800" y1="24" x2="800" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="812" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="816" y1="24" x2="816" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="828" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="832" y1="24" x2="832" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="844" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="848" y1="24" x2="848" y2="40" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- MA均线 -->
+            <polyline points="60,270 120,252 180,234 240,216 300,198 360,178 420,158 480,120 540,78 600,40 660,30 720,28 780,28 840,28"
+              fill="none" stroke="#00d4ff" stroke-width="1.2" opacity="0.85"/>
+            <polyline points="60,275 120,262 180,248 240,232 300,214 360,196 420,176 480,145 540,105 600,65 660,42 720,32 780,29 840,28"
+              fill="none" stroke="#40c4ff" stroke-width="1.2" opacity="0.7"/>
+
+            <!-- 成交量 -->
+            <line x1="50" y1="320" x2="860" y2="320" class="grid-line-major"/>
+            <text x="45" y="324" text-anchor="end" class="axis-text">VOL</text>
+            <text x="865" y="324" class="axis-text">5万手</text>
+
+            <rect x="60" y="340" width="8" height="30" fill="url(#volDown)"/>
+            <rect x="76" y="335" width="8" height="35" fill="url(#volUp)"/>
+            <rect x="92" y="330" width="8" height="40" fill="url(#volUp)"/>
+            <rect x="108" y="338" width="8" height="32" fill="url(#volDown)"/>
+            <rect x="124" y="328" width="8" height="42" fill="url(#volUp)"/>
+            <rect x="140" y="325" width="8" height="45" fill="url(#volUp)"/>
+            <rect x="156" y="332" width="8" height="38" fill="url(#volDown)"/>
+            <rect x="172" y="322" width="8" height="48" fill="url(#volUp)"/>
+            <rect x="188" y="318" width="8" height="52" fill="url(#volUp)"/>
+            <rect x="204" y="315" width="8" height="55" fill="url(#volUp)"/>
+            <rect x="220" y="322" width="8" height="48" fill="url(#volDown)"/>
+            <rect x="236" y="312" width="8" height="58" fill="url(#volUp)"/>
+            <rect x="252" y="308" width="8" height="62" fill="url(#volUp)"/>
+            <rect x="268" y="318" width="8" height="52" fill="url(#volDown)"/>
+            <rect x="284" y="305" width="8" height="65" fill="url(#volUp)"/>
+            <rect x="300" y="302" width="8" height="68" fill="url(#volUp)"/>
+            <rect x="316" y="312" width="8" height="58" fill="url(#volDown)"/>
+            <rect x="332" y="300" width="8" height="70" fill="url(#volUp)"/>
+            <rect x="348" y="298" width="8" height="72" fill="url(#volUp)"/>
+            <rect x="364" y="308" width="8" height="62" fill="url(#volDown)"/>
+            <rect x="380" y="295" width="8" height="75" fill="url(#volUp)"/>
+            <rect x="396" y="292" width="8" height="78" fill="url(#volUp)"/>
+            <!-- 放量 -->
+            <rect x="440" y="280" width="8" height="90" fill="url(#volUp)"/>
+            <rect x="456" y="270" width="8" height="100" fill="url(#volUp)"/>
+            <rect x="472" y="285" width="8" height="85" fill="url(#volDown)"/>
+            <rect x="488" y="260" width="8" height="110" fill="url(#volUp)"/>
+            <rect x="504" y="250" width="8" height="120" fill="url(#volUp)"/>
+            <rect x="520" y="265" width="8" height="105" fill="url(#volDown)"/>
+            <rect x="536" y="245" width="8" height="125" fill="url(#volUp)"/>
+            <rect x="552" y="240" width="8" height="130" fill="url(#volUp)"/>
+            <rect x="568" y="255" width="8" height="115" fill="url(#volDown)"/>
+            <rect x="584" y="238" width="8" height="132" fill="url(#volUp)"/>
+            <!-- 封板缩量 -->
+            <rect x="600" y="290" width="8" height="80" fill="url(#volUp)"/>
+            <rect x="616" y="300" width="8" height="70" fill="url(#volUp)"/>
+            <rect x="632" y="310" width="8" height="60" fill="url(#volUp)"/>
+            <rect x="648" y="315" width="8" height="55" fill="url(#volDown)"/>
+            <rect x="664" y="318" width="8" height="52" fill="url(#volUp)"/>
+            <rect x="680" y="320" width="8" height="50" fill="url(#volUp)"/>
+
+            <!-- 放量突破标注 -->
+            <line x1="480" y1="240" x2="480" y2="370" class="crosshair-v"/>
+            <rect x="428" y="375" width="104" height="18" rx="3" fill="rgba(0, 212, 255,0.1)" stroke="rgba(0, 212, 255,0.35)"/>
+            <text x="480" y="387" text-anchor="middle" fill="#00d4ff" font-size="9" font-family="monospace" font-weight="700">放量突破 · 量比3.42</text>
+
+            <!-- 十字线 -->
+            <line x1="540" y1="30" x2="540" y2="400" class="crosshair-v"/>
+            <line x1="50" y1="52" x2="860" y2="52" class="crosshair-h"/>
+            <rect x="810" y="44" width="48" height="16" rx="3" fill="rgba(0, 212, 255,0.12)" stroke="rgba(0, 212, 255,0.4)"/>
+            <text x="834" y="55" text-anchor="middle" fill="#00d4ff" font-size="9" font-family="monospace">12.78</text>
+            <rect x="510" y="395" width="60" height="14" rx="3" fill="rgba(0, 212, 255,0.12)" stroke="rgba(0, 212, 255,0.4)"/>
+            <text x="540" y="405" text-anchor="middle" fill="#00d4ff" font-size="8" font-family="monospace">13:45</text>
+          </svg>
+        </div>
+      </section>
+    </main>
+
+    <!-- 右侧信息面板 -->
+    <aside class="info-panel glass">
+      <div class="info-section">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[02]</span>关键指标</span>
+          <span class="meta">实时</span>
+        </div>
+        <div class="info-body">
+          <div class="kv-row"><span class="k">总市值</span><span class="v num">154.8亿</span></div>
+          <div class="kv-row"><span class="k">流通市值</span><span class="v num">142.3亿</span></div>
+          <div class="kv-row"><span class="k">市盈率(TTM)</span><span class="v num">28.4</span></div>
+          <div class="kv-row"><span class="k">市净率</span><span class="v num">2.18</span></div>
+          <div class="kv-row"><span class="k">52周最高</span><span class="v up num">13.50</span></div>
+          <div class="kv-row"><span class="k">52周最低</span><span class="v down num">6.82</span></div>
+          <div class="kv-row highlight"><span class="k">涨停价</span><span class="v amber num">12.84</span></div>
+          <div class="kv-row"><span class="k">跌停价</span><span class="v num">10.50</span></div>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[03]</span>技术信号</span>
+          <span class="meta">5m</span>
+        </div>
+        <div class="info-body">
+          <div class="kv-row"><span class="k">MA5</span><span class="v up num">12.42 ↑</span></div>
+          <div class="kv-row"><span class="k">MA10</span><span class="v up num">12.18 ↑</span></div>
+          <div class="kv-row"><span class="k">MA20</span><span class="v up num">11.86 ↑</span></div>
+          <div class="kv-row"><span class="k">MA60</span><span class="v num">11.24 ↑</span></div>
+          <div class="kv-row highlight"><span class="k">金叉</span><span class="v amber">MA5↑MA10 ✓</span></div>
+          <div class="kv-row"><span class="k">MACD</span><span class="v up">多头 0.084</span></div>
+          <div class="kv-row"><span class="k">KDJ</span><span class="v amber">超买 K92 D85</span></div>
+          <div class="kv-row"><span class="k">RSI(14)</span><span class="v amber num">78.4</span></div>
+          <div class="kv-row highlight"><span class="k">放量突破</span><span class="v amber">量比3.42 ✓</span></div>
+          <div class="kv-row"><span class="k">20日新高</span><span class="v up">是 ✓</span></div>
+        </div>
+      </div>
+
+      <div class="info-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[04]</span>T+1 信号</span>
+          <span class="meta">12</span>
+        </div>
+        <div class="signal-list" style="flex:1;overflow-y:auto">
+          <div class="signal-item">
+            <span class="sig-type buy">买入</span>
+            <span class="sig-code num">002531</span>
+            <span class="sig-name">天顺风能</span>
+            <span class="sig-score num">92.5</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type buy">买入</span>
+            <span class="sig-code num">002202</span>
+            <span class="sig-name">金风科技</span>
+            <span class="sig-score num">88.3</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">300274</span>
+            <span class="sig-name">阳光电源</span>
+            <span class="sig-score num">85.1</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">300750</span>
+            <span class="sig-name">宁德时代</span>
+            <span class="sig-score num">82.7</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type sell">卖出</span>
+            <span class="sig-code num">601012</span>
+            <span class="sig-name">隆基绿能</span>
+            <span class="sig-score num">42.1</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">002594</span>
+            <span class="sig-name">比亚迪</span>
+            <span class="sig-score num">79.4</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type buy">买入</span>
+            <span class="sig-code num">300059</span>
+            <span class="sig-name">东方财富</span>
+            <span class="sig-score num">76.8</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">601899</span>
+            <span class="sig-name">紫金矿业</span>
+            <span class="sig-score num">74.2</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 底部数据条 -->
+  <div class="bottom-strip">
+    <div class="bottom-panel glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[05]</span>市场广度</span>
+        <span class="meta">09-12</span>
+      </div>
+      <div class="info-body" style="flex:1">
+        <div class="kv-row"><span class="k">上涨</span><span class="v up num">3,128</span></div>
+        <div class="kv-row"><span class="k">下跌</span><span class="v down num">1,864</span></div>
+        <div class="kv-row"><span class="k">平盘</span><span class="v num">215</span></div>
+        <div class="kv-row"><span class="k">涨停</span><span class="v up num">68</span></div>
+        <div class="kv-row"><span class="k">跌停</span><span class="v down num">12</span></div>
+        <div class="kv-row"><span class="k">炸板</span><span class="v num">23</span></div>
+        <div class="kv-row highlight"><span class="k">赚钱效应</span><span class="v amber">偏强</span></div>
+      </div>
+    </div>
+
+    <div class="bottom-panel wide glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[06]</span>指数行情</span>
+        <span class="meta">实时</span>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>代码</th><th>名称</th><th class="num-col">最新</th>
+              <th class="num-col">涨跌</th><th class="num-col">涨幅</th>
+              <th class="num-col">成交额</th><th class="num-col">振幅</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="active"><td class="num">000001</td><td>上证指数</td><td class="num-col up num">3,247.68</td><td class="num-col up num">+28.45</td><td class="num-col up num">+0.88%</td><td class="num-col num">4,286亿</td><td class="num-col num">1.12%</td></tr>
+            <tr><td class="num">399001</td><td>深证成指</td><td class="num-col up num">10,582.31</td><td class="num-col up num">+112.07</td><td class="num-col up num">+1.07%</td><td class="num-col num">5,132亿</td><td class="num-col num">1.34%</td></tr>
+            <tr><td class="num">399006</td><td>创业板指</td><td class="num-col down num">2,156.44</td><td class="num-col down num">-18.22</td><td class="num-col down num">-0.84%</td><td class="num-col num">1,820亿</td><td class="num-col num">1.56%</td></tr>
+            <tr><td class="num">000688</td><td>科创50</td><td class="num-col up num">986.15</td><td class="num-col up num">+12.83</td><td class="num-col up num">+1.32%</td><td class="num-col num">684亿</td><td class="num-col num">1.78%</td></tr>
+            <tr><td class="num">000300</td><td>沪深300</td><td class="num-col up num">3,891.22</td><td class="num-col up num">+35.61</td><td class="num-col up num">+0.92%</td><td class="num-col num">2,156亿</td><td class="num-col num">0.98%</td></tr>
+            <tr><td class="num">000905</td><td>中证500</td><td class="num-col up num">5,842.16</td><td class="num-col up num">+78.32</td><td class="num-col up num">+1.36%</td><td class="num-col num">1,420亿</td><td class="num-col num">1.45%</td></tr>
+            <tr><td class="num">000852</td><td>中证1000</td><td class="num-col up num">6,218.45</td><td class="num-col up num">+96.18</td><td class="num-col up num">+1.57%</td><td class="num-col num">986亿</td><td class="num-col num">1.68%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bottom-panel glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[07]</span>回测摘要</span>
+        <span class="meta">forward3</span>
+      </div>
+      <div class="info-body" style="flex:1">
+        <div class="kv-row highlight"><span class="k">最佳模型</span><span class="v amber">v5</span></div>
+        <div class="kv-row"><span class="k">累计收益</span><span class="v up num">+156.8%</span></div>
+        <div class="kv-row"><span class="k">基准收益</span><span class="v up num">+42.3%</span></div>
+        <div class="kv-row"><span class="k">超额收益</span><span class="v up num">+114.5%</span></div>
+        <div class="kv-row"><span class="k">最大回撤</span><span class="v down num">-18.5%</span></div>
+        <div class="kv-row"><span class="k">夏普比率</span><span class="v num">2.14</span></div>
+        <div class="kv-row"><span class="k">胜率</span><span class="v num">58.3%</span></div>
+        <div class="kv-row"><span class="k">盈亏比</span><span class="v num">1.86</span></div>
+      </div>
+    </div>
+
+    <div class="bottom-panel glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[08]</span>任务状态</span>
+        <span class="meta">4</span>
+      </div>
+      <div class="info-body" style="flex:1">
+        <div class="kv-row"><span class="k"><span class="dot ok"></span> rt_idx_k</span><span class="v num">2,480</span></div>
+        <div class="kv-row"><span class="k"><span class="dot ok"></span> rt_idx_min</span><span class="v num">58,240</span></div>
+        <div class="kv-row"><span class="k"><span class="dot" style="background:#40c4ff;animation:blink 1s step-end infinite"></span> stock_daily</span><span class="v dim">运行中</span></div>
+        <div class="kv-row"><span class="k"><span class="dot err"></span> etf_factor</span><span class="v down">失败</span></div>
+        <div class="kv-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--glass-border)"><span class="k">SLA 达标</span><span class="v" style="color:var(--ok)">18/20</span></div>
+        <div class="kv-row"><span class="k">数据新鲜度</span><span class="v amber">实时</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部命令行 -->
+  <footer class="cmdline glass glass-strong">
+    <div class="prompt">
+      <span class="mode">NORMAL</span>
+      <span>admin@quant:~$</span>
+    </div>
+    <input type="text" placeholder="输入命令或股票代码...  例: 002531  / backtest  / sync start rt_idx_k" />
+    <div class="hints">
+      <span><kbd>Esc</kbd> 取消</span>
+      <span><kbd>:</kbd> 命令</span>
+      <span><kbd>/</kbd> 搜索</span>
+      <span><kbd>Tab</kbd> 补全</span>
+      <span><kbd>1-8</kbd> 切换面板</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+// 顶部 tab
+document.querySelectorAll('.topbar .tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.topbar .tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// 自选股
+document.querySelectorAll('.symbol-item').forEach(function(item) {
+  item.addEventListener('click', function() {
+    document.querySelectorAll('.symbol-item').forEach(function(i) { i.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// 周期按钮
+document.querySelectorAll('.tf-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var group = this.parentElement;
+    group.querySelectorAll('.tf-btn').forEach(function(b) { b.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// 指标
+document.querySelectorAll('.indicator').forEach(function(ind) {
+  ind.addEventListener('click', function() { this.classList.toggle('on'); });
+});
+
+// 指数表
+document.querySelectorAll('.data-table tr').forEach(function(row) {
+  row.addEventListener('click', function() {
+    this.parentElement.querySelectorAll('tr').forEach(function(r) { r.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// 时钟
+function tick() {
+  var now = new Date();
+  document.getElementById('clock').textContent =
+    String(now.getHours()).padStart(2,'0') + ':' +
+    String(now.getMinutes()).padStart(2,'0') + ':' +
+    String(now.getSeconds()).padStart(2,'0');
+}
+tick(); setInterval(tick, 1000);
+</script>
+
+</body>
+</html>

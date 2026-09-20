@@ -1,0 +1,18 @@
+{
+  "_retired": "legacy 因子选股（balanced/quality_value/trend_momentum/low_volatility/alpha_aggressive）已于 2026-09-18 彻底退役：股票选股只保留 ml_walkforward（config/stock-ml.yaml 驱动，信号由 stock_walkforward 写入 selection_candidates）；quant_engine/factors 模块、factor_mining 任务、/factors/summary 与 /factors/latest 端点、9103 的 alpha101 数据集条目、以及 factor_snapshots 表（49,938 行，备份见 artifacts/api-audit/backup-factor-snapshots-*.json）均已删除并 VACUUM 回收空间。filters/factors 段保留仅因两处仍会读它：common.load_config 的完整性校验，以及（已在准入层硬阻断的）legacy 月度回测 run_monthly。",
+  "filters": { "minHistoryDays": 260, "minListDays": 120, "minClose": 2, "minAmount20": 50000, "excludeNamePatterns": ["ST", "退"] },
+  "factors": {
+    "momentum20": { "label": "20日动量", "direction": 1 }, "momentum60": { "label": "60日动量", "direction": 1 },
+    "momentum120": { "label": "120日动量", "direction": 1 }, "trend": { "label": "均线趋势", "direction": 1 },
+    "volatility20": { "label": "20日波动率", "direction": -1 }, "drawdown60": { "label": "60日回撤", "direction": 1 },
+    "roe": { "label": "ROE", "direction": 1 }, "netprofitYoy": { "label": "净利润同比", "direction": 1 },
+    "debtToAssets": { "label": "资产负债率", "direction": -1 }, "peTtm": { "label": "PE TTM", "direction": -1, "positiveOnly": true },
+    "pb": { "label": "PB", "direction": -1, "positiveOnly": true }, "turnover20": { "label": "20日换手率", "direction": 1 },
+    "roa": { "label": "ROA", "direction": 1 }, "grossMargin": { "label": "毛利率", "direction": 1 },
+    "revenueYoy": { "label": "营收同比", "direction": 1 }, "ocfYoy": { "label": "现金流同比", "direction": 1 },
+    "currentRatio": { "label": "流动比率", "direction": 1 }, "mktCap": { "label": "总市值", "direction": -1 }
+  },
+  "models": {
+    "ml_walkforward": { "label": "机器学习", "minScore": 0, "minCoverage": 1.0, "maxCandidates": 100, "weights": {} }
+  }
+}

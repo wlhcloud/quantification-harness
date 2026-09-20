@@ -1,0 +1,14 @@
+id: daily-v1
+version: 1
+frequency: daily
+source: market.daily_bars
+status: active
+label: t1_open_close_return
+features:
+  - momentum5
+  - momentum20
+  - momentum60
+  - volatility20
+  - turnover_rate
+  - pe_ttm
+  - pb

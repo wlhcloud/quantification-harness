@@ -1,0 +1,3183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Q·LAB TERMINAL — 原型 v4 液态玻璃 · 青色</title>
+<style>
+/* ============================================================
+   v4 — Bloomberg 终端布局 × 液态玻璃拟态
+   ============================================================ */
+:root {
+  /* 背景 */
+  --bg-deep: #050508;
+
+  /* 玻璃面板 */
+  --glass-bg: rgba(12, 14, 22, 0.55);
+  --glass-bg-strong: rgba(14, 16, 26, 0.7);
+  --glass-bg-light: rgba(18, 20, 32, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-bright: rgba(255, 255, 255, 0.16);
+  --glass-border-amber: rgba(0, 212, 255, 0.25);
+  --glass-blur: blur(24px) saturate(1.6);
+  --glass-blur-strong: blur(32px) saturate(1.8);
+
+  /* 文字 */
+  --text: #e0e0e8;
+  --text-dim: #8888a0;
+  --text-faint: #505068;
+
+  /* 琥珀金 */
+  --amber: #00d4ff;
+  --amber-dim: #0891b2;
+  --amber-faint: rgba(0, 212, 255, 0.12);
+  --amber-glow: rgba(0, 212, 255, 0.5);
+
+  /* 涨跌 */
+  --up: #00e6a0;
+  --down: #ff5577;
+
+  /* 状态 */
+  --ok: #00e6a0;
+  --warn: #ffc107;
+  --err: #ff5577;
+  --info: #40c4ff;
+
+  /* 字体 */
+  --mono: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+
+  --xs: 10px; --sm: 11px; --md: 12px; --lg: 14px;
+  --xl: 16px; --xxl: 20px; --huge: 28px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; width: 100%; }
+body {
+  font-family: var(--mono);
+  font-size: var(--md);
+  color: var(--text);
+  background: var(--bg-deep);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+::selection { background: var(--amber); color: #000; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+.num { font-variant-numeric: tabular-nums; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.amber { color: var(--amber); }
+.dim { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+
+/* ============================================================
+   液态背景层 — 流动光斑
+   ============================================================ */
+.liquid-bg {
+  position: fixed; inset: 0; z-index: 0;
+  overflow: hidden; pointer-events: none;
+}
+.blob {
+  position: absolute; border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.blob-1 {
+  width: 520px; height: 520px;
+  background: radial-gradient(circle, rgba(0, 212, 255,0.35), transparent 70%);
+  top: -120px; right: 10%;
+  animation: float1 18s ease-in-out infinite;
+}
+.blob-2 {
+  width: 480px; height: 480px;
+  background: radial-gradient(circle, rgba(64,196,255,0.28), transparent 70%);
+  bottom: -100px; left: 15%;
+  animation: float2 22s ease-in-out infinite;
+}
+.blob-3 {
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(168,85,247,0.25), transparent 70%);
+  top: 40%; left: 50%;
+  animation: float3 26s ease-in-out infinite;
+}
+.blob-4 {
+  width: 350px; height: 350px;
+  background: radial-gradient(circle, rgba(0,230,160,0.2), transparent 70%);
+  top: 10%; left: -80px;
+  animation: float1 20s ease-in-out infinite reverse;
+}
+@keyframes float1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(60px, 40px) scale(1.1); }
+  66% { transform: translate(-30px, 60px) scale(0.95); }
+}
+@keyframes float2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-50px, -40px) scale(1.05); }
+  66% { transform: translate(40px, -60px) scale(0.9); }
+}
+@keyframes float3 {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-30%, -60%) scale(1.2); }
+}
+
+/* 细网格叠加 */
+.liquid-bg::after {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at center, black 20%, transparent 85%);
+}
+
+/* 噪点纹理 */
+.noise {
+  position: fixed; inset: 0; z-index: 0;
+  opacity: 0.03; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   玻璃面板基类
+   ============================================================ */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  position: relative;
+  overflow: hidden;
+}
+.glass::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  pointer-events: none;
+}
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+}
+
+/* ============================================================
+   整体布局
+   ============================================================ */
+.terminal {
+  display: flex; flex-direction: column;
+  height: 100vh; width: 100vw;
+  position: relative; z-index: 1;
+  padding: 10px;
+  gap: 10px;
+}
+
+/* ---- 顶部状态条 ---- */
+.topbar {
+  height: 32px; flex-shrink: 0;
+  border-radius: 10px;
+  display: flex; align-items: center;
+  font-size: var(--xs);
+  padding: 0 14px;
+  gap: 0;
+}
+.topbar .seg {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 10px; height: 100%;
+}
+.topbar .seg.host {
+  border-right: 1px solid var(--glass-border);
+}
+.topbar .seg.host b { color: var(--amber); font-size: var(--sm); }
+.topbar .tab {
+  padding: 0 12px; height: 100%;
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; color: var(--text-dim);
+  border-right: 1px solid var(--glass-border);
+  transition: all 0.15s;
+  position: relative;
+}
+.topbar .tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.topbar .tab.active {
+  color: var(--amber);
+  background: var(--amber-faint);
+}
+.topbar .tab.active::after {
+  content: ""; position: absolute; bottom: 0; left: 15%; right: 15%; height: 1px;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber-glow);
+}
+.topbar .tab .idx { color: var(--text-faint); font-size: 9px; }
+.topbar .tab.active .idx { color: var(--amber-dim); }
+.topbar .spacer { flex: 1; }
+.topbar .right-seg {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; height: 100%;
+  border-left: 1px solid var(--glass-border);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.dot.err { background: var(--err); box-shadow: 0 0 6px var(--err); }
+.topbar .clock { color: var(--amber); font-weight: 600; font-size: var(--sm); }
+
+/* ---- 主工作区 ---- */
+.workspace {
+  flex: 1; display: flex;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* 左侧符号列表 */
+.symbol-list {
+  width: 210px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  height: 30px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: var(--xs);
+  letter-spacing: 1px;
+}
+.panel-header .title { color: var(--amber); font-weight: 700; }
+.panel-header .title .num-prefix { color: var(--amber-dim); margin-right: 6px; opacity: 0.7; }
+.panel-header .meta { color: var(--text-faint); }
+
+.symbol-items { flex: 1; overflow-y: auto; padding: 4px 0; }
+.symbol-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  margin: 0 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-size: var(--sm);
+}
+.symbol-item:hover { background: rgba(255,255,255,0.05); }
+.symbol-item.active {
+  background: var(--amber-faint);
+  border: 1px solid var(--glass-border-amber);
+  padding: 6px 11px;
+  box-shadow: 0 0 16px rgba(0, 212, 255,0.1);
+}
+.symbol-item .code { color: var(--text-dim); font-size: var(--xs); width: 48px; flex-shrink: 0; }
+.symbol-item.active .code { color: var(--amber); }
+.symbol-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symbol-item .price { text-align: right; }
+.symbol-item .price b { display: block; font-size: var(--sm); }
+.symbol-item .price span { font-size: 9px; display: block; }
+
+/* 中央主区域 */
+.main-area {
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0;
+  gap: 10px;
+}
+
+/* 报价条 */
+.quote-strip {
+  height: 48px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 16px;
+}
+.quote-strip .sym {
+  display: flex; align-items: baseline; gap: 10px;
+}
+.quote-strip .sym .code { font-size: var(--xl); color: var(--amber); font-weight: 700; }
+.quote-strip .sym .name { font-size: var(--sm); color: var(--text-dim); }
+.quote-strip .price { font-size: var(--huge); font-weight: 700; }
+.quote-strip .chg { font-size: var(--lg); }
+.quote-strip .chg .arrow { font-size: var(--sm); margin-right: 4px; }
+.quote-strip .stats { display: flex; gap: 16px; margin-left: auto; }
+.quote-strip .stat { text-align: right; }
+.quote-strip .stat span { display: block; font-size: 9px; color: var(--text-faint); letter-spacing: 1px; }
+.quote-strip .stat b { font-size: var(--sm); font-weight: 500; }
+
+/* 图表区 */
+.chart-section {
+  flex: 1; display: flex; flex-direction: column;
+  border-radius: 12px;
+  min-height: 0; overflow: hidden;
+}
+.chart-toolbar {
+  height: 32px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: var(--xs);
+}
+.chart-toolbar .group {
+  display: flex; align-items: center;
+  border-right: 1px solid var(--glass-border);
+  height: 100%;
+  padding-right: 10px; margin-right: 10px;
+}
+.chart-toolbar .group:last-child { border-right: none; }
+.chart-toolbar label { color: var(--text-faint); margin-right: 6px; font-size: 9px; letter-spacing: 1px; }
+.tf-btn {
+  padding: 3px 8px; cursor: pointer;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: all 0.1s;
+  font-family: var(--mono);
+  font-size: var(--xs);
+  background: transparent;
+}
+.tf-btn:hover { color: var(--text); }
+.tf-btn.active {
+  color: var(--amber);
+  border-color: var(--glass-border-amber);
+  background: var(--amber-faint);
+}
+.chart-toolbar .spacer { flex: 1; }
+.chart-toolbar .indicator {
+  color: var(--text-dim); padding: 0 8px; cursor: pointer;
+  transition: color 0.1s;
+}
+.chart-toolbar .indicator:hover { color: var(--amber); }
+.chart-toolbar .indicator.on { color: var(--amber); }
+
+.chart-canvas {
+  flex: 1; position: relative; overflow: hidden;
+}
+.chart-canvas svg { width: 100%; height: 100%; display: block; }
+
+/* 右侧信息面板 */
+.info-panel {
+  width: 270px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.info-section {
+  border-bottom: 1px solid var(--glass-border);
+}
+.info-section:last-child { border-bottom: none; }
+.info-body { padding: 8px 12px; font-size: var(--sm); }
+.kv-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 3px 0;
+}
+.kv-row .k { color: var(--text-dim); font-size: var(--xs); }
+.kv-row .v { font-weight: 500; }
+.kv-row.highlight {
+  background: var(--amber-faint);
+  margin: 2px -12px; padding: 5px 12px;
+  border-left: 2px solid var(--amber);
+  border-right: 2px solid transparent;
+}
+.kv-row.highlight .k { color: var(--amber); }
+
+.signal-list { padding: 4px 0; }
+.signal-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: var(--xs);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.signal-item:hover { background: rgba(255,255,255,0.04); }
+.signal-item .sig-type {
+  padding: 1px 5px; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.5px; flex-shrink: 0;
+  border-radius: 3px;
+}
+.sig-type.buy { background: rgba(0,230,160,0.12); color: var(--up); border: 1px solid rgba(0,230,160,0.25); }
+.sig-type.sell { background: rgba(255,85,119,0.12); color: var(--down); border: 1px solid rgba(255,85,119,0.25); }
+.sig-type.watch { background: var(--amber-faint); color: var(--amber); border: 1px solid var(--glass-border-amber); }
+.signal-item .sig-code { width: 48px; flex-shrink: 0; }
+.signal-item .sig-name { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-item .sig-score { color: var(--amber); font-weight: 700; }
+
+/* ---- 底部数据条 ---- */
+.bottom-strip {
+  height: 170px; flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  overflow: hidden;
+}
+.bottom-panel {
+  flex: 1; display: flex; flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  min-width: 0;
+}
+.bottom-panel.wide { flex: 1.6; }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--xs); }
+.data-table th {
+  text-align: left; padding: 5px 8px;
+  color: var(--text-faint);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  font-size: 9px;
+  border-bottom: 1px solid var(--glass-border);
+  position: sticky; top: 0;
+  background: rgba(12,14,22,0.8);
+  backdrop-filter: blur(10px);
+}
+.data-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+.data-table tr { cursor: pointer; transition: background 0.08s; }
+.data-table tr:hover { background: rgba(255,255,255,0.04); }
+.data-table tr.active { background: var(--amber-faint); }
+.data-table tr.active td { color: var(--amber); }
+.data-table .num-col { text-align: right; }
+.table-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
+
+/* ---- 底部命令行 ---- */
+.cmdline {
+  height: 32px; flex-shrink: 0;
+  border-radius: 10px;
+  display: flex; align-items: center;
+  padding: 0 14px;
+  font-size: var(--sm);
+  gap: 10px;
+}
+.cmdline .prompt {
+  color: var(--amber); font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.cmdline .prompt .mode {
+  font-size: 9px; padding: 2px 7px;
+  background: var(--amber-faint); color: var(--amber);
+  border: 1px solid var(--glass-border-amber);
+  letter-spacing: 1px;
+  border-radius: 4px;
+}
+.cmdline input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: var(--mono); font-size: var(--sm);
+  caret-color: var(--amber);
+}
+.cmdline input::placeholder { color: var(--text-faint); }
+.cmdline .hints {
+  display: flex; gap: 12px;
+  font-size: 9px; color: var(--text-faint);
+}
+.cmdline .hints kbd {
+  padding: 1px 5px; background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border); color: var(--text-dim);
+  font-family: var(--mono); font-size: 9px;
+  border-radius: 3px;
+}
+
+/* 图表内样式 */
+.crosshair-h { stroke: rgba(0, 212, 255,0.35); stroke-width: 1; stroke-dasharray: 3 3; }
+.crosshair-v { stroke: rgba(0, 212, 255,0.35); stroke-width: 1; stroke-dasharray: 3 3; }
+.grid-line { stroke: rgba(255,255,255,0.04); stroke-width: 1; }
+.grid-line-major { stroke: rgba(255,255,255,0.07); stroke-width: 1; }
+.axis-text { fill: #666; font-size: 9px; font-family: var(--mono); }
+.axis-text-amber { fill: var(--amber); font-size: 9px; font-family: var(--mono); }
+
+@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+/* 入场动画 */
+@keyframes glassIn {
+  from { opacity: 0; transform: translateY(8px); backdrop-filter: blur(0px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.glass { animation: glassIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.topbar { animation-delay: 0.05s; }
+.symbol-list { animation-delay: 0.1s; }
+.quote-strip { animation-delay: 0.15s; }
+.chart-section { animation-delay: 0.2s; }
+.info-panel { animation-delay: 0.25s; }
+.bottom-strip .bottom-panel:nth-child(1) { animation-delay: 0.3s; }
+.bottom-strip .bottom-panel:nth-child(2) { animation-delay: 0.33s; }
+.bottom-strip .bottom-panel:nth-child(3) { animation-delay: 0.36s; }
+.bottom-strip .bottom-panel:nth-child(4) { animation-delay: 0.39s; }
+.cmdline { animation-delay: 0.42s; }
+
+/* ============================================================
+   多 Tab 页面容器
+   ============================================================ */
+.tab-page {
+  flex: 1; display: none;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.tab-page.active { display: flex; }
+
+/* 子工作区（每个 tab-page 内复用三栏布局） */
+.page-workspace {
+  flex: 1; display: flex;
+  gap: 10px;
+  min-height: 0;
+}
+.page-bottom {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* 通用侧栏宽度变体 */
+.col-260 { width: 260px; flex-shrink: 0; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.col-280 { width: 280px; flex-shrink: 0; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.col-300 { width: 300px; flex-shrink: 0; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.col-flex { flex: 1; display: flex; flex-direction: column; min-width: 0; border-radius: 12px; overflow: hidden; }
+.col-flex-14 { flex: 1.4; display: flex; flex-direction: column; min-width: 0; border-radius: 12px; overflow: hidden; }
+
+/* ============================================================
+   表单控件（选股/回测/同步 等）
+   ============================================================ */
+.cond-section { padding: 8px 12px; border-bottom: 1px solid var(--glass-border); }
+.cond-section:last-child { border-bottom: none; }
+.cond-title {
+  font-size: 9px; letter-spacing: 1.5px;
+  color: var(--amber); opacity: 0.75;
+  margin-bottom: 6px; text-transform: uppercase;
+}
+.cond-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 0; font-size: var(--sm);
+}
+.cond-row .lbl { color: var(--text-dim); }
+.cond-row .lbl .hint { color: var(--text-faint); font-size: 9px; margin-left: 4px; }
+
+/* 开关 */
+.toggle {
+  width: 28px; height: 14px; border-radius: 7px;
+  background: rgba(255,255,255,0.08);
+  position: relative; cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.toggle::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #888;
+  transition: all 0.15s;
+}
+.toggle.on { background: var(--amber-faint); border: 1px solid var(--glass-border-amber); }
+.toggle.on::after { left: 14px; background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+
+/* 数字输入框 */
+.num-input {
+  width: 62px; height: 18px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  color: var(--amber);
+  font-family: var(--mono); font-size: var(--xs);
+  padding: 0 5px; text-align: right;
+  outline: none;
+}
+.num-input:focus { border-color: var(--glass-border-amber); }
+.num-input.sm { width: 46px; }
+.range-input {
+  display: flex; align-items: center; gap: 3px;
+}
+.range-input .sep { color: var(--text-faint); }
+
+/* 标签多选 */
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; }
+.tag-chip {
+  padding: 2px 8px; font-size: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.12s;
+  user-select: none;
+}
+.tag-chip:hover { color: var(--text); border-color: var(--glass-border-bright); }
+.tag-chip.active {
+  color: var(--amber);
+  background: var(--amber-faint);
+  border-color: var(--glass-border-amber);
+}
+
+/* 操作按钮 */
+.action-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: var(--mono); font-size: var(--sm);
+  cursor: pointer;
+  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-dim);
+  transition: all 0.12s;
+}
+.action-btn:hover { color: var(--text); border-color: var(--glass-border-bright); }
+.action-btn.primary {
+  background: var(--amber);
+  color: #00141c;
+  font-weight: 700;
+  border-color: transparent;
+  box-shadow: 0 0 16px rgba(0,212,255,0.35);
+}
+.action-btn.primary:hover { filter: brightness(1.1); color: #00141c; }
+.action-btn.danger { color: var(--down); border-color: rgba(255,85,119,0.3); }
+.action-btn.danger:hover { background: rgba(255,85,119,0.1); }
+.action-row { display: flex; gap: 6px; padding: 10px 12px; }
+.action-row .action-btn { flex: 1; }
+
+/* 下拉样式 */
+.select-box {
+  display: inline-flex; align-items: center;
+  height: 20px; padding: 0 8px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  font-size: var(--xs); color: var(--text);
+  cursor: pointer;
+}
+.select-box:hover { border-color: var(--glass-border-amber); color: var(--amber); }
+.select-box::after { content: " ▾"; color: var(--text-faint); font-size: 9px; margin-left: 4px; }
+
+/* ============================================================
+   工具栏 / 统计条
+   ============================================================ */
+.toolbar-row {
+  height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: var(--xs);
+}
+.toolbar-row .spacer { flex: 1; }
+.toolbar-row .stat-pill {
+  padding: 2px 8px;
+  background: var(--amber-faint);
+  border: 1px solid var(--glass-border-amber);
+  border-radius: 4px;
+  color: var(--amber);
+}
+
+/* 评分进度条 */
+.score-bar {
+  display: inline-block; width: 60px; height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  vertical-align: middle;
+  overflow: hidden;
+  position: relative;
+}
+.score-bar > i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--amber-dim), var(--amber));
+  box-shadow: 0 0 6px var(--amber-glow);
+}
+.score-bar.high > i { background: linear-gradient(90deg, #06b884, var(--up)); box-shadow: 0 0 6px rgba(0,230,160,0.5); }
+.score-bar.low > i { background: linear-gradient(90deg, #b83050, var(--down)); box-shadow: 0 0 6px rgba(255,85,119,0.5); }
+
+/* ============================================================
+   指标卡片网格
+   ============================================================ */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: 8px 10px;
+}
+.metric-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.metric-card {
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.metric-card .m-label {
+  font-size: 9px; color: var(--text-faint);
+  letter-spacing: 0.5px;
+}
+.metric-card .m-value {
+  font-size: var(--lg); font-weight: 700;
+  margin-top: 2px;
+}
+.metric-card .m-sub { font-size: 9px; color: var(--text-dim); margin-top: 1px; }
+
+/* ============================================================
+   进度条
+   ============================================================ */
+.progress-wrap {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber-dim), var(--amber));
+  box-shadow: 0 0 8px var(--amber-glow);
+  border-radius: 3px;
+  position: relative;
+}
+.progress-bar::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+.progress-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: var(--xs); }
+.progress-row .pct { width: 42px; text-align: right; color: var(--amber); }
+
+/* ============================================================
+   终端日志区
+   ============================================================ */
+.terminal-log {
+  flex: 1;
+  background: rgba(0,0,0,0.55);
+  border-top: 1px solid var(--glass-border);
+  padding: 6px 10px;
+  overflow-y: auto;
+  font-size: 11px;
+  font-family: var(--mono);
+  line-height: 1.65;
+}
+.terminal-log .log-line { white-space: pre; }
+.terminal-log .ts { color: var(--text-faint); }
+.terminal-log .lvl-INFO { color: var(--up); }
+.terminal-log .lvl-WARN { color: var(--warn); }
+.terminal-log .lvl-ERROR { color: var(--down); }
+.terminal-log .lvl-DEBUG { color: var(--info); }
+.terminal-log .msg { color: var(--text); }
+
+/* ============================================================
+   热力图
+   ============================================================ */
+.heatmap {
+  display: grid;
+  grid-template-columns: 40px repeat(12, 1fr);
+  gap: 2px;
+  padding: 8px 10px;
+  font-size: 9px;
+}
+.heatmap .hm-label { color: var(--text-faint); text-align: right; padding-right: 4px; line-height: 18px; }
+.heatmap .hm-cell {
+  height: 18px; border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: rgba(0,0,0,0.75);
+  font-weight: 600;
+}
+.heatmap .hm-head { color: var(--text-faint); text-align: center; line-height: 18px; }
+
+/* ============================================================
+   树形目录（数据集）
+   ============================================================ */
+.tree-search {
+  margin: 8px 10px;
+  height: 24px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: 5px;
+  display: flex; align-items: center;
+  padding: 0 8px;
+  font-size: var(--xs);
+  color: var(--text-dim);
+}
+.tree-search input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: var(--mono); font-size: var(--xs);
+}
+.tree { padding: 2px 8px 8px; overflow-y: auto; flex: 1; }
+.tree-group { margin-bottom: 2px; }
+.tree-group-header {
+  padding: 4px 6px;
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer;
+  font-size: var(--sm);
+  color: var(--text);
+  border-radius: 4px;
+}
+.tree-group-header:hover { background: rgba(255,255,255,0.04); }
+.tree-group-header .arrow { color: var(--text-faint); font-size: 9px; transition: transform 0.15s; }
+.tree-group.open .arrow { transform: rotate(90deg); }
+.tree-children { padding-left: 14px; display: none; }
+.tree-group.open .tree-children { display: block; }
+.tree-leaf {
+  padding: 3px 6px;
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--xs);
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tree-leaf:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.tree-leaf.active {
+  background: var(--amber-faint);
+  color: var(--amber);
+  border-left: 2px solid var(--amber);
+  padding-left: 4px;
+}
+.tree-leaf .fresh { margin-left: auto; }
+
+/* 覆盖矩阵 */
+.cov-matrix {
+  display: grid;
+  grid-template-columns: 90px repeat(5, 1fr);
+  gap: 2px;
+  padding: 8px 10px;
+  font-size: 10px;
+}
+.cov-matrix .cov-h { color: var(--text-faint); text-align: center; }
+.cov-matrix .cov-l { color: var(--text-dim); display: flex; align-items: center; }
+.cov-matrix .cov-c {
+  height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.cov-c.full { background: rgba(0,230,160,0.12); color: var(--up); }
+.cov-c.part { background: rgba(255,193,7,0.12); color: var(--warn); }
+.cov-c.none { background: rgba(255,85,119,0.1); color: var(--down); }
+
+/* ============================================================
+   快速交易 / 模拟盘
+   ============================================================ */
+.trade-input {
+  height: 26px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: 5px;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: var(--sm);
+  padding: 0 8px;
+  outline: none;
+  width: 100%;
+}
+.trade-input:focus { border-color: var(--glass-border-amber); }
+.side-btn {
+  flex: 1; height: 36px;
+  border-radius: 6px;
+  font-family: var(--mono); font-size: var(--md); font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-dim);
+  transition: all 0.12s;
+}
+.side-btn.buy.active {
+  background: rgba(0,230,160,0.15);
+  border-color: rgba(0,230,160,0.5);
+  color: var(--up);
+  box-shadow: 0 0 12px rgba(0,230,160,0.25);
+}
+.side-btn.sell.active {
+  background: rgba(255,85,119,0.15);
+  border-color: rgba(255,85,119,0.5);
+  color: var(--down);
+  box-shadow: 0 0 12px rgba(255,85,119,0.25);
+}
+.pct-quick { display: flex; gap: 4px; }
+.pct-quick .qbtn {
+  flex: 1; padding: 3px 0;
+  font-size: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: center;
+}
+.pct-quick .qbtn:hover { color: var(--amber); border-color: var(--glass-border-amber); }
+
+/* 状态标签 */
+.status-pill {
+  padding: 1px 6px;
+  font-size: 9px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+.status-pill.done { background: rgba(0,230,160,0.12); color: var(--up); border: 1px solid rgba(0,230,160,0.25); }
+.status-pill.part { background: var(--amber-faint); color: var(--amber); border: 1px solid var(--glass-border-amber); }
+.status-pill.cancel { background: rgba(255,85,119,0.1); color: var(--down); border: 1px solid rgba(255,85,119,0.25); }
+.status-pill.wait { background: rgba(255,193,7,0.1); color: var(--warn); border: 1px solid rgba(255,193,7,0.25); }
+.status-pill.running { background: rgba(64,196,255,0.12); color: var(--info); border: 1px solid rgba(64,196,255,0.3); }
+
+/* 大数字 */
+.big-number {
+  font-size: 26px; font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+.big-number .unit { font-size: 11px; color: var(--text-faint); margin-left: 4px; font-weight: 400; }
+
+/* 任务列表项 */
+.task-item {
+  padding: 6px 12px;
+  margin: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+  border: 1px solid transparent;
+}
+.task-item:hover { background: rgba(255,255,255,0.04); }
+.task-item.active {
+  background: var(--amber-faint);
+  border-color: var(--glass-border-amber);
+}
+.task-item .t-row { display: flex; align-items: center; gap: 6px; }
+.task-item .t-name { flex: 1; font-size: var(--sm); }
+.task-item.active .t-name { color: var(--amber); }
+.task-item .t-meta { font-size: 9px; color: var(--text-faint); margin-top: 2px; }
+.task-item .t-tag {
+  font-size: 8px; padding: 1px 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-dim);
+}
+.task-item .t-tag.rt { color: var(--info); background: rgba(64,196,255,0.12); }
+
+/* 分隔竖线 */
+.v-sep { width: 1px; background: var(--glass-border); align-self: stretch; margin: 6px 0; }
+
+/* 子 tab 条（页面内顶部） */
+.sub-tab-bar {
+  display: flex; gap: 2px;
+  padding: 0 8px; height: 30px;
+  align-items: center;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.sub-tab-bar .sub-tab {
+  padding: 3px 10px;
+  font-size: var(--xs);
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+.sub-tab-bar .sub-tab:hover { color: var(--text); }
+.sub-tab-bar .sub-tab.active {
+  color: var(--amber);
+  background: var(--amber-faint);
+  border-color: var(--glass-border-amber);
+}
+
+/* 日期/参数条 */
+.param-bar {
+  height: 36px; flex-shrink: 0;
+  border-radius: 12px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 14px;
+}
+.param-bar .p-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--xs);
+}
+.param-bar .p-item .k { color: var(--text-faint); }
+.param-bar .p-item .v { color: var(--text); }
+
+/* 模型/任务列表项复用 symbol-item 风格，这里补充 mini 列表 */
+.mini-list { padding: 4px 0; flex: 1; overflow-y: auto; }
+.mini-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: var(--xs);
+  cursor: pointer;
+}
+.mini-item:hover { background: rgba(255,255,255,0.04); }
+.mini-item .mi-name { flex: 1; }
+.mini-item .mi-val { color: var(--amber); }
+
+/* 数据血缘 */
+.blood-line {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 10px;
+}
+.blood-node {
+  padding: 4px 8px;
+  border: 1px solid var(--glass-border-amber);
+  background: var(--amber-faint);
+  color: var(--amber);
+  border-radius: 4px;
+}
+.blood-arrow { color: var(--text-faint); }
+
+</style>
+</head>
+<body>
+
+<!-- 液态背景 -->
+<div class="liquid-bg">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="blob blob-4"></div>
+</div>
+<div class="noise"></div>
+
+<div class="terminal">
+
+  <!-- 顶部状态条 -->
+  <header class="topbar glass glass-strong">
+    <div class="seg host">
+      <b>Q·LAB</b>
+      <span class="dim">quant-terminal</span>
+    </div>
+    <div class="tab active" data-tab="01"><span class="idx">01</span>总览</div>
+    <div class="tab" data-tab="02"><span class="idx">02</span>选股</div>
+    <div class="tab" data-tab="03"><span class="idx">03</span>回测</div>
+    <div class="tab" data-tab="04"><span class="idx">04</span>模拟盘</div>
+    <div class="tab" data-tab="05"><span class="idx">05</span>ETF</div>
+    <div class="tab" data-tab="06"><span class="idx">06</span>数据</div>
+    <div class="tab" data-tab="07"><span class="idx">07</span>同步</div>
+    <div class="tab" data-tab="08"><span class="idx">08</span>模型</div>
+    <div class="spacer"></div>
+    <div class="right-seg">
+      <span class="dot ok"></span><span class="dim">SYNC</span>
+      <span class="dot ok"></span><span class="dim">ENGINE</span>
+      <span class="dot warn"></span><span class="dim">QUERY</span>
+    </div>
+    <div class="right-seg">
+      <span class="dim">2026-09-13</span>
+      <span class="clock num" id="clock">14:32:08</span>
+    </div>
+    <div class="right-seg">
+      <span class="dim">admin@research</span>
+    </div>
+  </header>
+
+  <!-- ==================== TAB 01: 总览 ==================== -->
+  <div class="tab-page active" data-tab="01">
+
+  <!-- 主工作区 -->
+  <div class="workspace">
+
+    <!-- 左侧符号列表 -->
+    <aside class="symbol-list glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[01]</span>自选股</span>
+        <span class="meta">12</span>
+      </div>
+      <div class="symbol-items">
+        <div class="symbol-item active">
+          <span class="code num">002531</span>
+          <span class="name">天顺风能</span>
+          <span class="price"><b class="up num">12.84</b><span class="up num">+9.98%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">002202</span>
+          <span class="name">金风科技</span>
+          <span class="price"><b class="up num">8.62</b><span class="up num">+3.24%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">300274</span>
+          <span class="name">阳光电源</span>
+          <span class="price"><b class="up num">78.50</b><span class="up num">+2.18%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">300750</span>
+          <span class="name">宁德时代</span>
+          <span class="price"><b class="down num">186.20</b><span class="down num">-1.05%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">002594</span>
+          <span class="name">比亚迪</span>
+          <span class="price"><b class="up num">245.60</b><span class="up num">+0.87%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">601012</span>
+          <span class="name">隆基绿能</span>
+          <span class="price"><b class="down num">18.35</b><span class="down num">-2.31%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">600036</span>
+          <span class="name">招商银行</span>
+          <span class="price"><b class="up num">34.28</b><span class="up num">+0.56%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">601318</span>
+          <span class="name">中国平安</span>
+          <span class="price"><b class="down num">42.15</b><span class="down num">-0.82%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">000858</span>
+          <span class="name">五粮液</span>
+          <span class="price"><b class="up num">128.40</b><span class="up num">+1.23%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">600519</span>
+          <span class="name">贵州茅台</span>
+          <span class="price"><b class="down num">1,528.00</b><span class="down num">-0.45%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">300059</span>
+          <span class="name">东方财富</span>
+          <span class="price"><b class="up num">14.62</b><span class="up num">+4.12%</span></span>
+        </div>
+        <div class="symbol-item">
+          <span class="code num">601899</span>
+          <span class="name">紫金矿业</span>
+          <span class="price"><b class="up num">17.85</b><span class="up num">+2.87%</span></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中央主区域 -->
+    <main class="main-area">
+
+      <!-- 报价条 -->
+      <div class="quote-strip glass glass-strong">
+        <div class="sym">
+          <span class="code num">002531</span>
+          <span class="name">天顺风能 · 风电设备 · 深市</span>
+        </div>
+        <span class="price up num">12.84</span>
+        <span class="chg up num"><span class="arrow">▲</span>+1.16  +9.98%</span>
+        <div class="stats">
+          <div class="stat"><span>今开</span><b class="num">11.80</b></div>
+          <div class="stat"><span>最高</span><b class="up num">12.84</b></div>
+          <div class="stat"><span>最低</span><b class="num">11.68</b></div>
+          <div class="stat"><span>成交量</span><b class="num">286.5万手</b></div>
+          <div class="stat"><span>成交额</span><b class="num">35.2亿</b></div>
+          <div class="stat"><span>换手率</span><b class="amber num">16.8%</b></div>
+          <div class="stat"><span>量比</span><b class="up num">3.42</b></div>
+        </div>
+      </div>
+
+      <!-- 图表区 -->
+      <section class="chart-section glass">
+        <div class="chart-toolbar">
+          <div class="group">
+            <label>周期</label>
+            <button class="tf-btn">1m</button>
+            <button class="tf-btn active">5m</button>
+            <button class="tf-btn">15m</button>
+            <button class="tf-btn">30m</button>
+            <button class="tf-btn">60m</button>
+            <button class="tf-btn">日K</button>
+            <button class="tf-btn">周K</button>
+          </div>
+          <div class="group">
+            <label>主图</label>
+            <button class="tf-btn active">K线</button>
+            <button class="tf-btn">收盘线</button>
+          </div>
+          <div class="group">
+            <label>指标</label>
+            <span class="indicator on">MA(5,10,20)</span>
+            <span class="indicator on">VOL</span>
+            <span class="indicator">MACD</span>
+            <span class="indicator">KDJ</span>
+          </div>
+          <div class="spacer"></div>
+          <div class="group" style="border-right:none">
+            <span class="dim">前复权</span>
+            <span class="faint">|</span>
+            <span class="dim">2026-09-13 14:32</span>
+          </div>
+        </div>
+
+        <div class="chart-canvas">
+          <svg viewBox="0 0 900 420" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="volUp" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#00e6a0" stop-opacity="0.5"/>
+                <stop offset="100%" stop-color="#00e6a0" stop-opacity="0.05"/>
+              </linearGradient>
+              <linearGradient id="volDown" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#ff5577" stop-opacity="0.5"/>
+                <stop offset="100%" stop-color="#ff5577" stop-opacity="0.05"/>
+              </linearGradient>
+            </defs>
+
+            <!-- 网格 -->
+            <line x1="50" y1="30" x2="860" y2="30" class="grid-line-major"/>
+            <line x1="50" y1="80" x2="860" y2="80" class="grid-line"/>
+            <line x1="50" y1="130" x2="860" y2="130" class="grid-line-major"/>
+            <line x1="50" y1="180" x2="860" y2="180" class="grid-line"/>
+            <line x1="50" y1="230" x2="860" y2="230" class="grid-line-major"/>
+            <line x1="50" y1="280" x2="860" y2="280" class="grid-line"/>
+            <line x1="218" y1="30" x2="218" y2="300" class="grid-line"/>
+            <line x1="385" y1="30" x2="385" y2="300" class="grid-line"/>
+            <line x1="552" y1="30" x2="552" y2="300" class="grid-line"/>
+
+            <!-- 价格轴 -->
+            <text x="865" y="33" class="axis-text">13.20</text>
+            <text x="865" y="83" class="axis-text">12.90</text>
+            <text x="865" y="133" class="axis-text-amber">12.60</text>
+            <text x="865" y="183" class="axis-text">12.30</text>
+            <text x="865" y="233" class="axis-text">12.00</text>
+            <text x="865" y="283" class="axis-text">11.70</text>
+
+            <!-- 涨跌幅轴 -->
+            <text x="45" y="33" text-anchor="end" class="axis-text" fill="#00e6a0">+12.8%</text>
+            <text x="45" y="83" text-anchor="end" class="axis-text" fill="#00e6a0">+10.3%</text>
+            <text x="45" y="133" text-anchor="end" class="axis-text-amber">+7.7%</text>
+            <text x="45" y="183" text-anchor="end" class="axis-text">+5.1%</text>
+            <text x="45" y="233" text-anchor="end" class="axis-text">+2.6%</text>
+            <text x="45" y="283" text-anchor="end" class="axis-text" fill="#ff5577">0.0%</text>
+
+            <!-- 时间轴 -->
+            <text x="60" y="410" class="axis-text">09:30</text>
+            <text x="200" y="410" class="axis-text">10:00</text>
+            <text x="340" y="410" class="axis-text">10:30</text>
+            <text x="480" y="410" class="axis-text">11:00/13:00</text>
+            <text x="620" y="410" class="axis-text">13:30</text>
+            <text x="760" y="410" class="axis-text">14:00</text>
+            <text x="855" y="410" text-anchor="end" class="axis-text">14:30</text>
+
+            <!-- K线 -->
+            <rect x="60" y="268" width="8" height="12" fill="#ff5577"/>
+            <line x1="64" y1="260" x2="64" y2="284" stroke="#ff5577" stroke-width="1"/>
+            <rect x="76" y="262" width="8" height="16" fill="#00e6a0"/>
+            <line x1="80" y1="255" x2="80" y2="282" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="92" y="258" width="8" height="14" fill="#00e6a0"/>
+            <line x1="96" y1="250" x2="96" y2="276" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="108" y="255" width="8" height="18" fill="#ff5577"/>
+            <line x1="112" y1="248" x2="112" y2="278" stroke="#ff5577" stroke-width="1"/>
+            <rect x="124" y="250" width="8" height="16" fill="#00e6a0"/>
+            <line x1="128" y1="242" x2="128" y2="270" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="140" y="246" width="8" height="14" fill="#00e6a0"/>
+            <line x1="144" y1="240" x2="144" y2="264" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="156" y="240" width="8" height="18" fill="#ff5577"/>
+            <line x1="160" y1="232" x2="160" y2="262" stroke="#ff5577" stroke-width="1"/>
+            <rect x="172" y="236" width="8" height="16" fill="#00e6a0"/>
+            <line x1="176" y1="228" x2="176" y2="256" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="188" y="228" width="8" height="14" fill="#00e6a0"/>
+            <line x1="192" y1="220" x2="192" y2="246" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="204" y="222" width="8" height="16" fill="#00e6a0"/>
+            <line x1="208" y1="214" x2="208" y2="242" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="220" y="216" width="8" height="18" fill="#ff5577"/>
+            <line x1="224" y1="208" x2="224" y2="238" stroke="#ff5577" stroke-width="1"/>
+            <rect x="236" y="210" width="8" height="14" fill="#00e6a0"/>
+            <line x1="240" y1="202" x2="240" y2="228" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="252" y="204" width="8" height="16" fill="#00e6a0"/>
+            <line x1="256" y1="196" x2="256" y2="224" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="268" y="198" width="8" height="14" fill="#ff5577"/>
+            <line x1="272" y1="190" x2="272" y2="216" stroke="#ff5577" stroke-width="1"/>
+            <rect x="284" y="192" width="8" height="16" fill="#00e6a0"/>
+            <line x1="288" y1="184" x2="288" y2="212" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="300" y="186" width="8" height="18" fill="#00e6a0"/>
+            <line x1="304" y1="176" x2="304" y2="208" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="316" y="180" width="8" height="14" fill="#ff5577"/>
+            <line x1="320" y1="172" x2="320" y2="198" stroke="#ff5577" stroke-width="1"/>
+            <rect x="332" y="174" width="8" height="16" fill="#00e6a0"/>
+            <line x1="336" y1="166" x2="336" y2="194" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="348" y="168" width="8" height="14" fill="#00e6a0"/>
+            <line x1="352" y1="160" x2="352" y2="186" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="364" y="162" width="8" height="16" fill="#ff5577"/>
+            <line x1="368" y1="154" x2="368" y2="182" stroke="#ff5577" stroke-width="1"/>
+            <rect x="380" y="156" width="8" height="14" fill="#00e6a0"/>
+            <line x1="384" y1="148" x2="384" y2="174" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="396" y="150" width="8" height="16" fill="#00e6a0"/>
+            <line x1="400" y1="142" x2="400" y2="170" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- 午间缺口 -->
+            <line x1="420" y1="30" x2="420" y2="300" stroke="rgba(0, 212, 255,0.15)" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="425" y="45" class="axis-text-amber" font-size="8">午间休市</text>
+
+            <!-- 下午拉升 -->
+            <rect x="440" y="140" width="8" height="18" fill="#00e6a0"/>
+            <line x1="444" y1="128" x2="444" y2="162" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="456" y="128" width="8" height="20" fill="#00e6a0"/>
+            <line x1="460" y1="114" x2="460" y2="152" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="472" y="114" width="8" height="18" fill="#ff5577"/>
+            <line x1="476" y1="102" x2="476" y2="136" stroke="#ff5577" stroke-width="1"/>
+            <rect x="488" y="102" width="8" height="20" fill="#00e6a0"/>
+            <line x1="492" y1="88" x2="492" y2="126" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="504" y="88" width="8" height="16" fill="#00e6a0"/>
+            <line x1="508" y1="76" x2="508" y2="108" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="520" y="76" width="8" height="18" fill="#ff5577"/>
+            <line x1="524" y1="64" x2="524" y2="98" stroke="#ff5577" stroke-width="1"/>
+            <rect x="536" y="64" width="8" height="16" fill="#00e6a0"/>
+            <line x1="540" y1="52" x2="540" y2="84" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="552" y="52" width="8" height="14" fill="#00e6a0"/>
+            <line x1="556" y1="42" x2="556" y2="70" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="568" y="44" width="8" height="16" fill="#ff5577"/>
+            <line x1="572" y1="34" x2="572" y2="64" stroke="#ff5577" stroke-width="1"/>
+            <rect x="584" y="36" width="8" height="14" fill="#00e6a0"/>
+            <line x1="588" y1="28" x2="588" y2="54" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- 涨停封板 -->
+            <rect x="600" y="30" width="8" height="12" fill="#00e6a0"/>
+            <line x1="604" y1="24" x2="604" y2="46" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="616" y="28" width="8" height="10" fill="#00e6a0"/>
+            <line x1="620" y1="24" x2="620" y2="42" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="632" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="636" y1="24" x2="636" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="648" y="28" width="8" height="8" fill="#ff5577"/>
+            <line x1="652" y1="24" x2="652" y2="40" stroke="#ff5577" stroke-width="1"/>
+            <rect x="664" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="668" y1="24" x2="668" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="680" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="684" y1="24" x2="684" y2="40" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- 涨停标记 -->
+            <rect x="696" y="16" width="52" height="18" rx="3" fill="rgba(0,230,160,0.1)" stroke="rgba(0,230,160,0.35)"/>
+            <text x="722" y="28" text-anchor="middle" fill="#00e6a0" font-size="9" font-family="monospace" font-weight="700">涨停 12.84</text>
+
+            <!-- 剩余K线 -->
+            <rect x="700" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="704" y1="24" x2="704" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="716" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="720" y1="24" x2="720" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="732" y="28" width="8" height="8" fill="#ff5577"/>
+            <line x1="736" y1="24" x2="736" y2="40" stroke="#ff5577" stroke-width="1"/>
+            <rect x="748" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="752" y1="24" x2="752" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="764" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="768" y1="24" x2="768" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="780" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="784" y1="24" x2="784" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="796" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="800" y1="24" x2="800" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="812" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="816" y1="24" x2="816" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="828" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="832" y1="24" x2="832" y2="40" stroke="#00e6a0" stroke-width="1"/>
+            <rect x="844" y="28" width="8" height="8" fill="#00e6a0"/>
+            <line x1="848" y1="24" x2="848" y2="40" stroke="#00e6a0" stroke-width="1"/>
+
+            <!-- MA均线 -->
+            <polyline points="60,270 120,252 180,234 240,216 300,198 360,178 420,158 480,120 540,78 600,40 660,30 720,28 780,28 840,28"
+              fill="none" stroke="#00d4ff" stroke-width="1.2" opacity="0.85"/>
+            <polyline points="60,275 120,262 180,248 240,232 300,214 360,196 420,176 480,145 540,105 600,65 660,42 720,32 780,29 840,28"
+              fill="none" stroke="#40c4ff" stroke-width="1.2" opacity="0.7"/>
+
+            <!-- 成交量 -->
+            <line x1="50" y1="320" x2="860" y2="320" class="grid-line-major"/>
+            <text x="45" y="324" text-anchor="end" class="axis-text">VOL</text>
+            <text x="865" y="324" class="axis-text">5万手</text>
+
+            <rect x="60" y="340" width="8" height="30" fill="url(#volDown)"/>
+            <rect x="76" y="335" width="8" height="35" fill="url(#volUp)"/>
+            <rect x="92" y="330" width="8" height="40" fill="url(#volUp)"/>
+            <rect x="108" y="338" width="8" height="32" fill="url(#volDown)"/>
+            <rect x="124" y="328" width="8" height="42" fill="url(#volUp)"/>
+            <rect x="140" y="325" width="8" height="45" fill="url(#volUp)"/>
+            <rect x="156" y="332" width="8" height="38" fill="url(#volDown)"/>
+            <rect x="172" y="322" width="8" height="48" fill="url(#volUp)"/>
+            <rect x="188" y="318" width="8" height="52" fill="url(#volUp)"/>
+            <rect x="204" y="315" width="8" height="55" fill="url(#volUp)"/>
+            <rect x="220" y="322" width="8" height="48" fill="url(#volDown)"/>
+            <rect x="236" y="312" width="8" height="58" fill="url(#volUp)"/>
+            <rect x="252" y="308" width="8" height="62" fill="url(#volUp)"/>
+            <rect x="268" y="318" width="8" height="52" fill="url(#volDown)"/>
+            <rect x="284" y="305" width="8" height="65" fill="url(#volUp)"/>
+            <rect x="300" y="302" width="8" height="68" fill="url(#volUp)"/>
+            <rect x="316" y="312" width="8" height="58" fill="url(#volDown)"/>
+            <rect x="332" y="300" width="8" height="70" fill="url(#volUp)"/>
+            <rect x="348" y="298" width="8" height="72" fill="url(#volUp)"/>
+            <rect x="364" y="308" width="8" height="62" fill="url(#volDown)"/>
+            <rect x="380" y="295" width="8" height="75" fill="url(#volUp)"/>
+            <rect x="396" y="292" width="8" height="78" fill="url(#volUp)"/>
+            <!-- 放量 -->
+            <rect x="440" y="280" width="8" height="90" fill="url(#volUp)"/>
+            <rect x="456" y="270" width="8" height="100" fill="url(#volUp)"/>
+            <rect x="472" y="285" width="8" height="85" fill="url(#volDown)"/>
+            <rect x="488" y="260" width="8" height="110" fill="url(#volUp)"/>
+            <rect x="504" y="250" width="8" height="120" fill="url(#volUp)"/>
+            <rect x="520" y="265" width="8" height="105" fill="url(#volDown)"/>
+            <rect x="536" y="245" width="8" height="125" fill="url(#volUp)"/>
+            <rect x="552" y="240" width="8" height="130" fill="url(#volUp)"/>
+            <rect x="568" y="255" width="8" height="115" fill="url(#volDown)"/>
+            <rect x="584" y="238" width="8" height="132" fill="url(#volUp)"/>
+            <!-- 封板缩量 -->
+            <rect x="600" y="290" width="8" height="80" fill="url(#volUp)"/>
+            <rect x="616" y="300" width="8" height="70" fill="url(#volUp)"/>
+            <rect x="632" y="310" width="8" height="60" fill="url(#volUp)"/>
+            <rect x="648" y="315" width="8" height="55" fill="url(#volDown)"/>
+            <rect x="664" y="318" width="8" height="52" fill="url(#volUp)"/>
+            <rect x="680" y="320" width="8" height="50" fill="url(#volUp)"/>
+
+            <!-- 放量突破标注 -->
+            <line x1="480" y1="240" x2="480" y2="370" class="crosshair-v"/>
+            <rect x="428" y="375" width="104" height="18" rx="3" fill="rgba(0, 212, 255,0.1)" stroke="rgba(0, 212, 255,0.35)"/>
+            <text x="480" y="387" text-anchor="middle" fill="#00d4ff" font-size="9" font-family="monospace" font-weight="700">放量突破 · 量比3.42</text>
+
+            <!-- 十字线 -->
+            <line x1="540" y1="30" x2="540" y2="400" class="crosshair-v"/>
+            <line x1="50" y1="52" x2="860" y2="52" class="crosshair-h"/>
+            <rect x="810" y="44" width="48" height="16" rx="3" fill="rgba(0, 212, 255,0.12)" stroke="rgba(0, 212, 255,0.4)"/>
+            <text x="834" y="55" text-anchor="middle" fill="#00d4ff" font-size="9" font-family="monospace">12.78</text>
+            <rect x="510" y="395" width="60" height="14" rx="3" fill="rgba(0, 212, 255,0.12)" stroke="rgba(0, 212, 255,0.4)"/>
+            <text x="540" y="405" text-anchor="middle" fill="#00d4ff" font-size="8" font-family="monospace">13:45</text>
+          </svg>
+        </div>
+      </section>
+    </main>
+
+    <!-- 右侧信息面板 -->
+    <aside class="info-panel glass">
+      <div class="info-section">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[02]</span>关键指标</span>
+          <span class="meta">实时</span>
+        </div>
+        <div class="info-body">
+          <div class="kv-row"><span class="k">总市值</span><span class="v num">154.8亿</span></div>
+          <div class="kv-row"><span class="k">流通市值</span><span class="v num">142.3亿</span></div>
+          <div class="kv-row"><span class="k">市盈率(TTM)</span><span class="v num">28.4</span></div>
+          <div class="kv-row"><span class="k">市净率</span><span class="v num">2.18</span></div>
+          <div class="kv-row"><span class="k">52周最高</span><span class="v up num">13.50</span></div>
+          <div class="kv-row"><span class="k">52周最低</span><span class="v down num">6.82</span></div>
+          <div class="kv-row highlight"><span class="k">涨停价</span><span class="v amber num">12.84</span></div>
+          <div class="kv-row"><span class="k">跌停价</span><span class="v num">10.50</span></div>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[03]</span>技术信号</span>
+          <span class="meta">5m</span>
+        </div>
+        <div class="info-body">
+          <div class="kv-row"><span class="k">MA5</span><span class="v up num">12.42 ↑</span></div>
+          <div class="kv-row"><span class="k">MA10</span><span class="v up num">12.18 ↑</span></div>
+          <div class="kv-row"><span class="k">MA20</span><span class="v up num">11.86 ↑</span></div>
+          <div class="kv-row"><span class="k">MA60</span><span class="v num">11.24 ↑</span></div>
+          <div class="kv-row highlight"><span class="k">金叉</span><span class="v amber">MA5↑MA10 ✓</span></div>
+          <div class="kv-row"><span class="k">MACD</span><span class="v up">多头 0.084</span></div>
+          <div class="kv-row"><span class="k">KDJ</span><span class="v amber">超买 K92 D85</span></div>
+          <div class="kv-row"><span class="k">RSI(14)</span><span class="v amber num">78.4</span></div>
+          <div class="kv-row highlight"><span class="k">放量突破</span><span class="v amber">量比3.42 ✓</span></div>
+          <div class="kv-row"><span class="k">20日新高</span><span class="v up">是 ✓</span></div>
+        </div>
+      </div>
+
+      <div class="info-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[04]</span>T+1 信号</span>
+          <span class="meta">12</span>
+        </div>
+        <div class="signal-list" style="flex:1;overflow-y:auto">
+          <div class="signal-item">
+            <span class="sig-type buy">买入</span>
+            <span class="sig-code num">002531</span>
+            <span class="sig-name">天顺风能</span>
+            <span class="sig-score num">92.5</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type buy">买入</span>
+            <span class="sig-code num">002202</span>
+            <span class="sig-name">金风科技</span>
+            <span class="sig-score num">88.3</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">300274</span>
+            <span class="sig-name">阳光电源</span>
+            <span class="sig-score num">85.1</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">300750</span>
+            <span class="sig-name">宁德时代</span>
+            <span class="sig-score num">82.7</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type sell">卖出</span>
+            <span class="sig-code num">601012</span>
+            <span class="sig-name">隆基绿能</span>
+            <span class="sig-score num">42.1</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">002594</span>
+            <span class="sig-name">比亚迪</span>
+            <span class="sig-score num">79.4</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type buy">买入</span>
+            <span class="sig-code num">300059</span>
+            <span class="sig-name">东方财富</span>
+            <span class="sig-score num">76.8</span>
+          </div>
+          <div class="signal-item">
+            <span class="sig-type watch">观察</span>
+            <span class="sig-code num">601899</span>
+            <span class="sig-name">紫金矿业</span>
+            <span class="sig-score num">74.2</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <!-- /workspace -->
+
+  <!-- 底部数据条 -->
+  <div class="bottom-strip">
+    <div class="bottom-panel glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[05]</span>市场广度</span>
+        <span class="meta">09-12</span>
+      </div>
+      <div class="info-body" style="flex:1">
+        <div class="kv-row"><span class="k">上涨</span><span class="v up num">3,128</span></div>
+        <div class="kv-row"><span class="k">下跌</span><span class="v down num">1,864</span></div>
+        <div class="kv-row"><span class="k">平盘</span><span class="v num">215</span></div>
+        <div class="kv-row"><span class="k">涨停</span><span class="v up num">68</span></div>
+        <div class="kv-row"><span class="k">跌停</span><span class="v down num">12</span></div>
+        <div class="kv-row"><span class="k">炸板</span><span class="v num">23</span></div>
+        <div class="kv-row highlight"><span class="k">赚钱效应</span><span class="v amber">偏强</span></div>
+      </div>
+    </div>
+
+    <div class="bottom-panel wide glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[06]</span>指数行情</span>
+        <span class="meta">实时</span>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>代码</th><th>名称</th><th class="num-col">最新</th>
+              <th class="num-col">涨跌</th><th class="num-col">涨幅</th>
+              <th class="num-col">成交额</th><th class="num-col">振幅</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="active"><td class="num">000001</td><td>上证指数</td><td class="num-col up num">3,247.68</td><td class="num-col up num">+28.45</td><td class="num-col up num">+0.88%</td><td class="num-col num">4,286亿</td><td class="num-col num">1.12%</td></tr>
+            <tr><td class="num">399001</td><td>深证成指</td><td class="num-col up num">10,582.31</td><td class="num-col up num">+112.07</td><td class="num-col up num">+1.07%</td><td class="num-col num">5,132亿</td><td class="num-col num">1.34%</td></tr>
+            <tr><td class="num">399006</td><td>创业板指</td><td class="num-col down num">2,156.44</td><td class="num-col down num">-18.22</td><td class="num-col down num">-0.84%</td><td class="num-col num">1,820亿</td><td class="num-col num">1.56%</td></tr>
+            <tr><td class="num">000688</td><td>科创50</td><td class="num-col up num">986.15</td><td class="num-col up num">+12.83</td><td class="num-col up num">+1.32%</td><td class="num-col num">684亿</td><td class="num-col num">1.78%</td></tr>
+            <tr><td class="num">000300</td><td>沪深300</td><td class="num-col up num">3,891.22</td><td class="num-col up num">+35.61</td><td class="num-col up num">+0.92%</td><td class="num-col num">2,156亿</td><td class="num-col num">0.98%</td></tr>
+            <tr><td class="num">000905</td><td>中证500</td><td class="num-col up num">5,842.16</td><td class="num-col up num">+78.32</td><td class="num-col up num">+1.36%</td><td class="num-col num">1,420亿</td><td class="num-col num">1.45%</td></tr>
+            <tr><td class="num">000852</td><td>中证1000</td><td class="num-col up num">6,218.45</td><td class="num-col up num">+96.18</td><td class="num-col up num">+1.57%</td><td class="num-col num">986亿</td><td class="num-col num">1.68%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bottom-panel glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[07]</span>回测摘要</span>
+        <span class="meta">forward3</span>
+      </div>
+      <div class="info-body" style="flex:1">
+        <div class="kv-row highlight"><span class="k">最佳模型</span><span class="v amber">v5</span></div>
+        <div class="kv-row"><span class="k">累计收益</span><span class="v up num">+156.8%</span></div>
+        <div class="kv-row"><span class="k">基准收益</span><span class="v up num">+42.3%</span></div>
+        <div class="kv-row"><span class="k">超额收益</span><span class="v up num">+114.5%</span></div>
+        <div class="kv-row"><span class="k">最大回撤</span><span class="v down num">-18.5%</span></div>
+        <div class="kv-row"><span class="k">夏普比率</span><span class="v num">2.14</span></div>
+        <div class="kv-row"><span class="k">胜率</span><span class="v num">58.3%</span></div>
+        <div class="kv-row"><span class="k">盈亏比</span><span class="v num">1.86</span></div>
+      </div>
+    </div>
+
+    <div class="bottom-panel glass">
+      <div class="panel-header">
+        <span class="title"><span class="num-prefix">[08]</span>任务状态</span>
+        <span class="meta">4</span>
+      </div>
+      <div class="info-body" style="flex:1">
+        <div class="kv-row"><span class="k"><span class="dot ok"></span> rt_idx_k</span><span class="v num">2,480</span></div>
+        <div class="kv-row"><span class="k"><span class="dot ok"></span> rt_idx_min</span><span class="v num">58,240</span></div>
+        <div class="kv-row"><span class="k"><span class="dot" style="background:#40c4ff;animation:blink 1s step-end infinite"></span> stock_daily</span><span class="v dim">运行中</span></div>
+        <div class="kv-row"><span class="k"><span class="dot err"></span> etf_factor</span><span class="v down">失败</span></div>
+        <div class="kv-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--glass-border)"><span class="k">SLA 达标</span><span class="v" style="color:var(--ok)">18/20</span></div>
+        <div class="kv-row"><span class="k">数据新鲜度</span><span class="v amber">实时</span></div>
+      </div>
+    </div>
+  </div>
+  <!-- /bottom-strip -->
+
+  </div><!-- /tab-page 01 -->
+
+  <!-- ==================== TAB 02: 选股 ==================== -->
+  <div class="tab-page" data-tab="02">
+    <div class="page-workspace">
+
+      <!-- 左侧选股条件 -->
+      <aside class="col-300 glass">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[S1]</span>选股条件</span>
+          <span class="meta">复合</span>
+        </div>
+        <div style="flex:1;overflow-y:auto">
+          <div class="cond-section">
+            <div class="cond-title">技术面筛选</div>
+            <div class="cond-row"><span class="lbl">MA 多头排列</span><span class="toggle on" data-toggle></span></div>
+            <div class="cond-row"><span class="lbl">MACD 金叉</span><span class="toggle on" data-toggle></span></div>
+            <div class="cond-row"><span class="lbl">放量突破 <span class="hint">量比≥</span></span>
+              <span class="range-input"><input class="num-input" value="2.0"/></span>
+            </div>
+            <div class="cond-row"><span class="lbl">RSI 区间</span>
+              <span class="range-input"><input class="num-input sm" value="30"/><span class="sep">~</span><input class="num-input sm" value="70"/></span>
+            </div>
+            <div class="cond-row"><span class="lbl">突破 20 日新高</span><span class="toggle on" data-toggle></span></div>
+          </div>
+          <div class="cond-section">
+            <div class="cond-title">基本面筛选</div>
+            <div class="cond-row"><span class="lbl">市盈率 PE</span>
+              <span class="range-input"><input class="num-input sm" value="0"/><span class="sep">~</span><input class="num-input sm" value="50"/></span>
+            </div>
+            <div class="cond-row"><span class="lbl">市净率 PB</span>
+              <span class="range-input"><input class="num-input sm" value="0"/><span class="sep">~</span><input class="num-input sm" value="5"/></span>
+            </div>
+            <div class="cond-row"><span class="lbl">ROE <span class="hint">></span></span>
+              <span class="range-input"><input class="num-input sm" value="15"/><span class="sep">%</span></span>
+            </div>
+            <div class="cond-row"><span class="lbl">营收增长 <span class="hint">></span></span>
+              <span class="range-input"><input class="num-input sm" value="20"/><span class="sep">%</span></span>
+            </div>
+          </div>
+          <div class="cond-section">
+            <div class="cond-title">量价筛选</div>
+            <div class="cond-row"><span class="lbl">换手率</span>
+              <span class="range-input"><input class="num-input sm" value="1"/><span class="sep">~</span><input class="num-input sm" value="20"/><span class="sep">%</span></span>
+            </div>
+            <div class="cond-row"><span class="lbl">成交额 <span class="hint">></span></span>
+              <span class="range-input"><input class="num-input sm" value="1"/><span class="sep">亿</span></span>
+            </div>
+            <div class="cond-row"><span class="lbl">流通市值</span>
+              <span class="range-input"><input class="num-input sm" value="50"/><span class="sep">~</span><input class="num-input sm" value="500"/><span class="sep">亿</span></span>
+            </div>
+          </div>
+          <div class="cond-section">
+            <div class="cond-title">行业选择</div>
+            <div class="tag-cloud">
+              <span class="tag-chip active">风电</span>
+              <span class="tag-chip active">光伏</span>
+              <span class="tag-chip active">新能源车</span>
+              <span class="tag-chip">半导体</span>
+              <span class="tag-chip">医药</span>
+              <span class="tag-chip">消费</span>
+              <span class="tag-chip">金融</span>
+              <span class="tag-chip">军工</span>
+            </div>
+          </div>
+        </div>
+        <div class="action-row">
+          <button class="action-btn primary">执行选股</button>
+          <button class="action-btn">重置条件</button>
+        </div>
+      </aside>
+
+      <!-- 中央结果 -->
+      <main class="col-flex">
+        <div class="toolbar-row">
+          <span class="stat-pill">命中 <b class="num">28</b> / 扫描 <b class="num">5,234</b></span>
+          <div class="v-sep"></div>
+          <span class="dim">排序</span>
+          <span class="select-box">综合评分</span>
+          <span class="dim">视图</span>
+          <button class="tf-btn active">列表</button>
+          <button class="tf-btn">卡片</button>
+          <div class="spacer"></div>
+          <span class="faint">2026-09-13 14:30 扫描完成</span>
+        </div>
+        <div class="table-scroll" style="flex:1">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>代码</th><th>名称</th><th>行业</th>
+                <th class="num-col">现价</th><th class="num-col">涨跌幅</th>
+                <th class="num-col">成交量</th><th class="num-col">换手率</th>
+                <th class="num-col">PE</th><th>信号评分</th><th>信号</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="active"><td class="num">002531</td><td>天顺风能</td><td class="dim">风电</td><td class="num-col num">12.84</td><td class="num-col up num">+9.98%</td><td class="num-col num">286万</td><td class="num-col num">16.8%</td><td class="num-col num">28.4</td><td><span class="score-bar high"><i style="width:92%"></i></span> <span class="amber num">92.5</span></td><td><span class="sig-type buy">买入</span></td></tr>
+              <tr><td class="num">002202</td><td>金风科技</td><td class="dim">风电</td><td class="num-col num">8.62</td><td class="num-col up num">+3.24%</td><td class="num-col num">142万</td><td class="num-col num">8.4%</td><td class="num-col num">22.1</td><td><span class="score-bar high"><i style="width:88%"></i></span> <span class="amber num">88.3</span></td><td><span class="sig-type buy">买入</span></td></tr>
+              <tr><td class="num">300274</td><td>阳光电源</td><td class="dim">光伏</td><td class="num-col num">78.50</td><td class="num-col up num">+2.18%</td><td class="num-col num">98万</td><td class="num-col num">5.2%</td><td class="num-col num">35.6</td><td><span class="score-bar high"><i style="width:85%"></i></span> <span class="amber num">85.1</span></td><td><span class="sig-type watch">观察</span></td></tr>
+              <tr><td class="num">300750</td><td>宁德时代</td><td class="dim">新能源车</td><td class="num-col num">186.20</td><td class="num-col down num">-1.05%</td><td class="num-col num">156万</td><td class="num-col num">2.8%</td><td class="num-col num">25.3</td><td><span class="score-bar high"><i style="width:82%"></i></span> <span class="amber num">82.7</span></td><td><span class="sig-type watch">观察</span></td></tr>
+              <tr><td class="num">002594</td><td>比亚迪</td><td class="dim">新能源车</td><td class="num-col num">245.60</td><td class="num-col up num">+0.87%</td><td class="num-col num">86万</td><td class="num-col num">1.6%</td><td class="num-col num">21.8</td><td><span class="score-bar high"><i style="width:79%"></i></span> <span class="amber num">79.4</span></td><td><span class="sig-type watch">观察</span></td></tr>
+              <tr><td class="num">300059</td><td>东方财富</td><td class="dim">金融</td><td class="num-col num">14.62</td><td class="num-col up num">+4.12%</td><td class="num-col num">420万</td><td class="num-col num">9.8%</td><td class="num-col num">32.5</td><td><span class="score-bar high"><i style="width:76%"></i></span> <span class="amber num">76.8</span></td><td><span class="sig-type buy">买入</span></td></tr>
+              <tr><td class="num">601899</td><td>紫金矿业</td><td class="dim">有色</td><td class="num-col num">17.85</td><td class="num-col up num">+2.87%</td><td class="num-col num">268万</td><td class="num-col num">4.2%</td><td class="num-col num">18.9</td><td><span class="score-bar"><i style="width:74%"></i></span> <span class="amber num">74.2</span></td><td><span class="sig-type watch">观察</span></td></tr>
+              <tr><td class="num">601012</td><td>隆基绿能</td><td class="dim">光伏</td><td class="num-col num">18.35</td><td class="num-col down num">-2.31%</td><td class="num-col num">189万</td><td class="num-col num">6.7%</td><td class="num-col num">28.2</td><td><span class="score-bar low"><i style="width:42%"></i></span> <span class="down num">42.1</span></td><td><span class="sig-type sell">卖出</span></td></tr>
+              <tr><td class="num">600438</td><td>通威股份</td><td class="dim">光伏</td><td class="num-col num">24.18</td><td class="num-col up num">+1.56%</td><td class="num-col num">112万</td><td class="num-col num">5.5%</td><td class="num-col num">16.4</td><td><span class="score-bar"><i style="width:68%"></i></span> <span class="amber num">68.5</span></td><td><span class="sig-type watch">观察</span></td></tr>
+              <tr><td class="num">688981</td><td>中芯国际</td><td class="dim">半导体</td><td class="num-col num">98.40</td><td class="num-col up num">+3.02%</td><td class="num-col num">78万</td><td class="num-col num">3.1%</td><td class="num-col num">52.8</td><td><span class="score-bar high"><i style="width:81%"></i></span> <span class="amber num">81.6</span></td><td><span class="sig-type buy">买入</span></td></tr>
+              <tr><td class="num">300760</td><td>迈瑞医疗</td><td class="dim">医药</td><td class="num-col num">286.50</td><td class="num-col down num">-0.68%</td><td class="num-col num">32万</td><td class="num-col num">1.2%</td><td class="num-col num">38.7</td><td><span class="score-bar"><i style="width:65%"></i></span> <span class="amber num">65.3</span></td><td><span class="sig-type watch">观察</span></td></tr>
+              <tr><td class="num">000858</td><td>五粮液</td><td class="dim">消费</td><td class="num-col num">128.40</td><td class="num-col up num">+1.23%</td><td class="num-col num">58万</td><td class="num-col num">1.8%</td><td class="num-col num">19.6</td><td><span class="score-bar low"><i style="width:45%"></i></span> <span class="down num">45.8</span></td><td><span class="sig-type sell">卖出</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+      <!-- 右侧分析 -->
+      <aside class="col-280 glass">
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[A1]</span>行业分布</span><span class="meta">命中</span></div>
+          <div style="padding:10px 12px">
+            <svg viewBox="0 0 240 150" style="width:100%;height:150px">
+              <!-- 横向柱状图：8 行业 -->
+              <!-- 行业标签与柱 -->
+              <g font-size="9" font-family="monospace" fill="#888">
+                <text x="0" y="16">风电</text><rect x="40" y="8" width="150" height="10" fill="url(#indBar)" opacity="0.9"/>
+                <text x="0" y="34">光伏</text><rect x="40" y="26" width="125" height="10" fill="url(#indBar)" opacity="0.8"/>
+                <text x="0" y="52">新能源车</text><rect x="40" y="44" width="100" height="10" fill="url(#indBar)" opacity="0.7"/>
+                <text x="0" y="70">半导体</text><rect x="40" y="62" width="75" height="10" fill="url(#indBar)" opacity="0.65"/>
+                <text x="0" y="88">医药</text><rect x="40" y="80" width="75" height="10" fill="url(#indBar)" opacity="0.6"/>
+                <text x="0" y="106">军工</text><rect x="40" y="98" width="75" height="10" fill="url(#indBar)" opacity="0.55"/>
+                <text x="0" y="124">消费</text><rect x="40" y="116" width="50" height="10" fill="url(#indBar)" opacity="0.5"/>
+                <text x="0" y="142">金融</text><rect x="40" y="134" width="50" height="10" fill="url(#indBar)" opacity="0.45"/>
+              </g>
+              <g font-size="9" fill="#00d4ff" font-family="monospace" font-weight="700">
+                <text x="196" y="17">6</text><text x="171" y="35">5</text><text x="146" y="53">4</text>
+                <text x="121" y="71">3</text><text x="121" y="89">3</text><text x="121" y="107">3</text>
+                <text x="96" y="125">2</text><text x="96" y="143">2</text>
+              </g>
+              <defs>
+                <linearGradient id="indBar" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#0891b2"/>
+                  <stop offset="100%" stop-color="#00d4ff"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        </div>
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[A2]</span>信号分布</span><span class="meta">环形</span></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 12px">
+            <svg viewBox="0 0 100 100" style="width:110px;height:110px;flex-shrink:0">
+              <!-- 环形：买入 12 (43%) 观察 11 (39%) 卖出 5 (18%) -->
+              <!-- 周长 ≈ 2*pi*40 ≈ 251.3 -->
+              <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#00e6a0" stroke-width="10"
+                stroke-dasharray="108 251.3" stroke-dashoffset="0" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#00d4ff" stroke-width="10"
+                stroke-dasharray="98 251.3" stroke-dashoffset="-108" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#ff5577" stroke-width="10"
+                stroke-dasharray="45 251.3" stroke-dashoffset="-206" transform="rotate(-90 50 50)"/>
+              <text x="50" y="48" text-anchor="middle" fill="#e0e0e8" font-size="14" font-weight="700" font-family="monospace">28</text>
+              <text x="50" y="60" text-anchor="middle" fill="#888" font-size="8" font-family="monospace">TOTAL</text>
+            </svg>
+            <div style="font-size:var(--xs);flex:1">
+              <div class="kv-row"><span class="k"><span class="dot" style="background:#00e6a0"></span> 买入</span><span class="v up num">12</span></div>
+              <div class="kv-row"><span class="k"><span class="dot" style="background:#00d4ff"></span> 观察</span><span class="v amber num">11</span></div>
+              <div class="kv-row"><span class="k"><span class="dot" style="background:#ff5577"></span> 卖出</span><span class="v down num">5</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="info-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[A3]</span>最近选股</span><span class="meta">5</span></div>
+          <div class="mini-list">
+            <div class="mini-item"><span class="mi-name">多因子动量 v5</span><span class="faint num">14:30</span></div>
+            <div class="mini-item" style="padding-left:26px"><span class="faint mi-name">MA多头 + MACD金叉 + 量比>2</span><span class="up mi-val">28</span></div>
+            <div class="mini-item"><span class="mi-name">低估值价值轮动</span><span class="faint num">11:20</span></div>
+            <div class="mini-item" style="padding-left:26px"><span class="faint mi-name">PE<20 + ROE>15%</span><span class="up mi-val">42</span></div>
+            <div class="mini-item"><span class="mi-name">放量突破 20 日新高</span><span class="faint num">10:05</span></div>
+            <div class="mini-item" style="padding-left:26px"><span class="faint mi-name">量比>3 + 新高</span><span class="up mi-val">15</span></div>
+            <div class="mini-item"><span class="mi-name">北向资金跟随</span><span class="faint num">09:45</span></div>
+            <div class="mini-item" style="padding-left:26px"><span class="faint mi-name">北向净买入>5000万</span><span class="up mi-val">9</span></div>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+  </div><!-- /tab-page 02 -->
+
+  <!-- ==================== TAB 03: 回测 ==================== -->
+  <div class="tab-page" data-tab="03">
+    <!-- 顶部参数条 -->
+    <div class="param-bar glass glass-strong">
+      <div class="p-item"><span class="k">策略</span><span class="select-box">多因子动量 v5</span></div>
+      <div class="p-item"><span class="k">区间</span><span class="select-box">2023-01-01</span><span class="dim">→</span><span class="select-box">2026-09-12</span></div>
+      <div class="p-item"><span class="k">初始资金</span><span class="v num">1,000,000</span></div>
+      <div class="p-item"><span class="k">手续费</span><span class="v num">0.03%</span></div>
+      <div class="p-item"><span class="k">滑点</span><span class="v num">0.05%</span></div>
+      <div class="p-item"><span class="k">持仓</span><span class="v amber">Top 10</span></div>
+      <div class="p-item"><span class="k">调仓</span><span class="v">月度</span></div>
+      <div class="p-item"><span class="k">基准</span><span class="v">沪深300</span></div>
+      <div style="flex:1"></div>
+      <button class="action-btn primary">运行回测</button>
+    </div>
+
+    <div class="page-workspace">
+      <!-- 左：收益曲线 -->
+      <section class="col-flex-14 glass">
+        <div class="chart-toolbar">
+          <div class="group">
+            <label>收益</label>
+            <button class="tf-btn active">累计收益</button>
+            <button class="tf-btn">超额收益</button>
+            <button class="tf-btn">相对收益</button>
+          </div>
+          <div class="group">
+            <label>坐标</label>
+            <span class="indicator">对数</span>
+            <span class="indicator on">回撤</span>
+          </div>
+          <div class="spacer"></div>
+          <span class="dim">策略 <span class="amber num">+156.8%</span></span>
+          <span class="faint">|</span>
+          <span class="dim">基准 <span class="num">+42.3%</span></span>
+        </div>
+        <div class="chart-canvas">
+          <svg viewBox="0 0 800 400" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="eqArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
+                <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
+              </linearGradient>
+            </defs>
+            <!-- 网格 -->
+            <line x1="50" y1="40" x2="780" y2="40" class="grid-line-major"/>
+            <line x1="50" y1="110" x2="780" y2="110" class="grid-line"/>
+            <line x1="50" y1="180" x2="780" y2="180" class="grid-line-major"/>
+            <line x1="50" y1="250" x2="780" y2="250" class="grid-line"/>
+            <line x1="50" y1="320" x2="780" y2="320" class="grid-line-major"/>
+            <!-- Y 轴标签 -50% ~ +200% -->
+            <text x="45" y="44" text-anchor="end" class="axis-text">+200%</text>
+            <text x="45" y="114" text-anchor="end" class="axis-text">+125%</text>
+            <text x="45" y="184" text-anchor="end" class="axis-text-amber">+50%</text>
+            <text x="45" y="254" text-anchor="end" class="axis-text">0%</text>
+            <text x="45" y="324" text-anchor="end" class="axis-text">-50%</text>
+            <!-- X 轴 -->
+            <text x="60" y="385" class="axis-text">2023Q1</text>
+            <text x="200" y="385" class="axis-text">2023Q4</text>
+            <text x="340" y="385" class="axis-text">2024Q3</text>
+            <text x="480" y="385" class="axis-text">2025Q2</text>
+            <text x="620" y="385" class="axis-text">2026Q1</text>
+            <text x="770" y="385" text-anchor="end" class="axis-text">2026Q3</text>
+
+            <!-- 0% 基准线 -->
+            <line x1="50" y1="250" x2="780" y2="250" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+
+            <!-- 基准曲线（灰色虚线）：从 0% 到 +42% -->
+            <polyline points="60,250 150,245 240,240 340,225 430,215 520,205 620,195 700,188 770,180"
+              fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <text x="770" y="175" text-anchor="end" fill="#888" font-size="9" font-family="monospace">HS300 +42.3%</text>
+
+            <!-- 策略面积填充 -->
+            <path d="M60,250 L110,240 L160,225 L210,205 L260,180 L310,150 L360,120 L410,90 L460,110 L510,130 L560,105 L610,80 L660,55 L710,40 L770,30 L770,340 L60,340 Z"
+              fill="url(#eqArea)"/>
+            <!-- 策略曲线（青色）：0% → +156% -->
+            <polyline points="60,250 110,240 160,225 210,205 260,180 310,150 360,120 410,90 460,110 510,130 560,105 610,80 660,55 710,40 770,30"
+              fill="none" stroke="#00d4ff" stroke-width="2"/>
+
+            <!-- 关键节点标注 -->
+            <!-- 2024 牛市起点 -->
+            <line x1="310" y1="150" x2="310" y2="340" stroke="rgba(0,212,255,0.3)" stroke-dasharray="3 3"/>
+            <rect x="270" y="345" width="80" height="16" rx="3" fill="rgba(0,212,255,0.1)" stroke="rgba(0,212,255,0.35)"/>
+            <text x="310" y="356" text-anchor="middle" fill="#00d4ff" font-size="8" font-family="monospace">2024牛市起点</text>
+            <!-- 2025 回撤 -->
+            <line x1="480" y1="120" x2="480" y2="340" stroke="rgba(255,85,119,0.3)" stroke-dasharray="3 3"/>
+            <rect x="445" y="200" width="70" height="16" rx="3" fill="rgba(255,85,119,0.1)" stroke="rgba(255,85,119,0.35)"/>
+            <text x="480" y="211" text-anchor="middle" fill="#ff5577" font-size="8" font-family="monospace">2025回撤 -18.5%</text>
+            <!-- 2026 创新高 -->
+            <line x1="710" y1="40" x2="710" y2="340" stroke="rgba(0,230,160,0.3)" stroke-dasharray="3 3"/>
+            <rect x="675" y="15" width="70" height="16" rx="3" fill="rgba(0,230,160,0.1)" stroke="rgba(0,230,160,0.35)"/>
+            <text x="710" y="26" text-anchor="middle" fill="#00e6a0" font-size="8" font-family="monospace">2026创新高</text>
+          </svg>
+        </div>
+      </section>
+
+      <!-- 右：绩效指标 -->
+      <aside class="col-280 glass">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[B1]</span>绩效指标</span>
+          <span class="meta">2023-2026</span>
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card"><div class="m-label">累计收益</div><div class="m-value up num">+156.8%</div></div>
+          <div class="metric-card"><div class="m-label">年化收益</div><div class="m-value up num">32.4%</div></div>
+          <div class="metric-card"><div class="m-label">基准收益</div><div class="m-value num">+42.3%</div></div>
+          <div class="metric-card"><div class="m-label">超额收益</div><div class="m-value amber num">+114.5%</div></div>
+          <div class="metric-card"><div class="m-label">最大回撤</div><div class="m-value down num">-18.5%</div></div>
+          <div class="metric-card"><div class="m-label">夏普比率</div><div class="m-value num">2.14</div></div>
+          <div class="metric-card"><div class="m-label">索提诺</div><div class="m-value num">3.02</div></div>
+          <div class="metric-card"><div class="m-label">卡玛比率</div><div class="m-value num">1.75</div></div>
+          <div class="metric-card"><div class="m-label">胜率</div><div class="m-value num">58.3%</div></div>
+          <div class="metric-card"><div class="m-label">盈亏比</div><div class="m-value num">1.86</div></div>
+          <div class="metric-card"><div class="m-label">日均换手</div><div class="m-value num">12.5%</div></div>
+          <div class="metric-card"><div class="m-label">信息比率</div><div class="m-value amber num">1.42</div></div>
+        </div>
+        <div class="panel-header" style="border-top:1px solid var(--glass-border)">
+          <span class="title">年度收益</span><span class="meta">柱状</span>
+        </div>
+        <div style="padding:8px 12px">
+          <svg viewBox="0 0 240 100" style="width:100%;height:100px">
+            <line x1="20" y1="50" x2="230" y2="50" stroke="rgba(255,255,255,0.15)"/>
+            <rect x="35" y="38" width="30" height="12" fill="#00e6a0" opacity="0.85"/>
+            <rect x="85" y="18" width="30" height="32" fill="#00e6a0" opacity="0.95"/>
+            <rect x="135" y="27" width="30" height="23" fill="#00e6a0" opacity="0.9"/>
+            <rect x="185" y="29" width="30" height="21" fill="#00d4ff" opacity="0.9"/>
+            <g font-size="9" fill="#888" font-family="monospace" text-anchor="middle">
+              <text x="50" y="80">2023</text><text x="100" y="80">2024</text>
+              <text x="150" y="80">2025</text><text x="200" y="80">2026YTD</text>
+            </g>
+            <g font-size="9" fill="#00e6a0" font-family="monospace" font-weight="700" text-anchor="middle">
+              <text x="50" y="34">+18.2%</text><text x="100" y="14">+45.6%</text>
+              <text x="150" y="23">+32.1%</text><text x="200" y="25" fill="#00d4ff">+28.5%</text>
+            </g>
+          </svg>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 底部三面板 -->
+    <div class="page-bottom" style="height:170px">
+      <div class="bottom-panel glass">
+        <div class="panel-header"><span class="title"><span class="num-prefix">[C1]</span>回撤分析</span><span class="meta">Top 5</span></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>回撤期</th><th>开始</th><th>结束</th><th class="num-col">最大回撤</th><th class="num-col">恢复</th></tr></thead>
+            <tbody>
+              <tr class="active"><td>2025Q1</td><td class="num">2025-01-15</td><td class="num">2025-02-28</td><td class="num-col down num">-18.5%</td><td class="num-col num">24天</td></tr>
+              <tr><td>2024Q3</td><td class="num">2024-07-10</td><td class="num">2024-08-05</td><td class="num-col down num">-11.2%</td><td class="num-col num">18天</td></tr>
+              <tr><td>2023Q2</td><td class="num">2023-04-20</td><td class="num">2023-05-30</td><td class="num-col down num">-9.8%</td><td class="num-col num">22天</td></tr>
+              <tr><td>2024Q1</td><td class="num">2024-01-15</td><td class="num">2024-02-05</td><td class="num-col down num">-7.6%</td><td class="num-col num">12天</td></tr>
+              <tr><td>2026Q2</td><td class="num">2026-05-10</td><td class="num">2026-05-25</td><td class="num-col down num">-5.4%</td><td class="num-col num">8天</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bottom-panel wide glass">
+        <div class="panel-header"><span class="title"><span class="num-prefix">[C2]</span>交易明细</span><span class="meta">最近 8 笔</span></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>日期</th><th>代码</th><th>名称</th><th>方向</th><th class="num-col">数量</th><th class="num-col">成交价</th><th class="num-col">金额</th><th class="num-col">手续费</th><th class="num-col">盈亏</th></tr></thead>
+            <tbody>
+              <tr class="active"><td class="num">2026-09-12</td><td class="num">002531</td><td>天顺风能</td><td><span class="up">买入</span></td><td class="num-col num">5000</td><td class="num-col num">11.80</td><td class="num-col num">59,000</td><td class="num-col num">17.7</td><td class="num-col up num">+5,200</td></tr>
+              <tr><td class="num">2026-09-11</td><td class="num">300274</td><td>阳光电源</td><td><span class="down">卖出</span></td><td class="num-col num">1000</td><td class="num-col num">76.80</td><td class="num-col num">76,800</td><td class="num-col num">23.0</td><td class="num-col up num">+3,450</td></tr>
+              <tr><td class="num">2026-09-10</td><td class="num">300750</td><td>宁德时代</td><td><span class="up">买入</span></td><td class="num-col num">500</td><td class="num-col num">188.20</td><td class="num-col num">94,100</td><td class="num-col num">28.2</td><td class="num-col down num">-1,000</td></tr>
+              <tr><td class="num">2026-09-09</td><td class="num">002202</td><td>金风科技</td><td><span class="down">卖出</span></td><td class="num-col num">8000</td><td class="num-col num">8.42</td><td class="num-col num">67,360</td><td class="num-col num">20.2</td><td class="num-col up num">+2,880</td></tr>
+              <tr><td class="num">2026-09-08</td><td class="num">688981</td><td>中芯国际</td><td><span class="up">买入</span></td><td class="num-col num">2000</td><td class="num-col num">95.50</td><td class="num-col num">191,000</td><td class="num-col num">57.3</td><td class="num-col up num">+5,800</td></tr>
+              <tr><td class="num">2026-09-05</td><td class="num">601012</td><td>隆基绿能</td><td><span class="down">卖出</span></td><td class="num-col num">5000</td><td class="num-col num">18.70</td><td class="num-col num">93,500</td><td class="num-col num">28.0</td><td class="num-col down num">-2,150</td></tr>
+              <tr><td class="num">2026-09-04</td><td class="num">601899</td><td>紫金矿业</td><td><span class="up">买入</span></td><td class="num-col num">3000</td><td class="num-col num">17.20</td><td class="num-col num">51,600</td><td class="num-col num">15.5</td><td class="num-col up num">+1,950</td></tr>
+              <tr><td class="num">2026-09-03</td><td class="num">300059</td><td>东方财富</td><td><span class="down">卖出</span></td><td class="num-col num">10000</td><td class="num-col num">14.10</td><td class="num-col num">141,000</td><td class="num-col num">42.3</td><td class="num-col up num">+3,200</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bottom-panel glass">
+        <div class="panel-header"><span class="title"><span class="num-prefix">[C3]</span>月度收益热力</span><span class="meta">2023-2026</span></div>
+        <div class="heatmap" style="flex:1;overflow:auto">
+          <div></div>
+          <div class="hm-head">J</div><div class="hm-head">F</div><div class="hm-head">M</div><div class="hm-head">A</div>
+          <div class="hm-head">M</div><div class="hm-head">J</div><div class="hm-head">J</div><div class="hm-head">A</div>
+          <div class="hm-head">S</div><div class="hm-head">O</div><div class="hm-head">N</div><div class="hm-head">D</div>
+          <div class="hm-label">2023</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.25)">+2.1</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.2)">-1.3</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.4</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.2)">+1.8</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.15)">-0.8</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.35)">+4.2</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.4)">+5.6</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.25)">-2.1</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.1</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.2)">+1.5</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.1)">-0.5</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.45)">+6.2</div>
+          <div class="hm-label">2024</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.5)">+7.8</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.6)">+9.2</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.4)">+5.1</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.3)">-2.8</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.35)">+4.3</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.45)">+6.7</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.55)">+8.4</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.2)">-1.6</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.2</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.25)">+2.4</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.4)">+5.5</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.35)">+4.1</div>
+          <div class="hm-label">2025</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.5)">-5.2</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.35)">-3.1</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.8</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.4)">+5.2</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.5)">+7.6</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.45)">+6.1</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.2)">-1.9</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.35)">+4.4</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.5</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.4)">+5.8</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.25)">+2.6</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.2</div>
+          <div class="hm-label">2026</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.35)">+4.0</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.45)">+6.3</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.5)">+7.1</div>
+          <div class="hm-cell" style="background:rgba(255,85,119,0.15)">-0.9</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.3)">+3.3</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.4)">+5.0</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.35)">+4.2</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.2)">+1.8</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0.25)">+2.4</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0)">-</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0)">-</div>
+          <div class="hm-cell" style="background:rgba(0,230,160,0)">-</div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-page 03 -->
+
+  <!-- ==================== TAB 04: 模拟盘 ==================== -->
+  <div class="tab-page" data-tab="04">
+    <div class="page-workspace">
+
+      <!-- 左：账户概览 -->
+      <aside class="col-280 glass">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[P1]</span>账户概览</span>
+          <span class="meta">SIM</span>
+        </div>
+        <div class="info-body">
+          <div class="faint" style="font-size:9px;letter-spacing:1px">总资产 (CNY)</div>
+          <div class="big-number amber num">1,286,450.00</div>
+          <div style="display:flex;gap:14px;margin-top:8px;font-size:var(--xs)">
+            <div><span class="faint">当日 </span><span class="up num">+12,840.00 (+1.01%)</span></div>
+          </div>
+          <div style="font-size:var(--xs);margin-top:2px">
+            <span class="faint">累计 </span><span class="up num">+286,450.00 (+28.65%)</span>
+          </div>
+        </div>
+        <div style="padding:6px 12px">
+          <svg viewBox="0 0 200 100" style="width:100%;height:90px">
+            <!-- 资产分布环形：股票82% 现金15% ETF3% -->
+            <circle cx="60" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"/>
+            <circle cx="60" cy="50" r="38" fill="none" stroke="#00d4ff" stroke-width="12"
+              stroke-dasharray="196 238.7" stroke-dashoffset="0" transform="rotate(-90 60 50)"/>
+            <circle cx="60" cy="50" r="38" fill="none" stroke="#00e6a0" stroke-width="12"
+              stroke-dasharray="35.8 238.7" stroke-dashoffset="-196" transform="rotate(-90 60 50)"/>
+            <circle cx="60" cy="50" r="38" fill="none" stroke="#ffc107" stroke-width="12"
+              stroke-dasharray="7.2 238.7" stroke-dashoffset="-231.8" transform="rotate(-90 60 50)"/>
+            <text x="60" y="48" text-anchor="middle" fill="#e0e0e8" font-size="11" font-weight="700" font-family="monospace">82%</text>
+            <text x="60" y="60" text-anchor="middle" fill="#888" font-size="8" font-family="monospace">仓位</text>
+            <g font-size="9" font-family="monospace">
+              <rect x="120" y="25" width="8" height="8" fill="#00d4ff"/><text x="132" y="32" fill="#888">股票 82%</text>
+              <rect x="120" y="45" width="8" height="8" fill="#00e6a0"/><text x="132" y="52" fill="#888">现金 15%</text>
+              <rect x="120" y="65" width="8" height="8" fill="#ffc107"/><text x="132" y="72" fill="#888">ETF 3%</text>
+            </g>
+          </svg>
+        </div>
+        <div class="info-body" style="flex:1">
+          <div class="kv-row"><span class="k">持仓市值</span><span class="v num">1,054,890</span></div>
+          <div class="kv-row"><span class="k">可用资金</span><span class="v up num">192,980</span></div>
+          <div class="kv-row"><span class="k">冻结资金</span><span class="v num">38,580</span></div>
+          <div class="kv-row highlight"><span class="k">仓位</span><span class="v amber num">82.0%</span></div>
+        </div>
+        <div style="padding:6px 12px;border-top:1px solid var(--glass-border)">
+          <div class="faint" style="font-size:9px;letter-spacing:1px;margin-bottom:4px">近 30 天资产曲线</div>
+          <svg viewBox="0 0 240 60" style="width:100%;height:50px">
+            <defs>
+              <linearGradient id="assetArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#00e6a0" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#00e6a0" stop-opacity="0.02"/>
+              </linearGradient>
+            </defs>
+            <path d="M0,45 L20,42 L40,40 L60,38 L80,35 L100,36 L120,30 L140,28 L160,25 L180,22 L200,20 L220,16 L240,12 L240,60 L0,60 Z" fill="url(#assetArea)"/>
+            <polyline points="0,45 20,42 40,40 60,38 80,35 100,36 120,30 140,28 160,25 180,22 200,20 220,16 240,12"
+              fill="none" stroke="#00e6a0" stroke-width="1.5"/>
+          </svg>
+        </div>
+      </aside>
+
+      <!-- 中央：持仓/委托/成交/流水 -->
+      <main class="col-flex">
+        <div class="sub-tab-bar">
+          <button class="sub-tab active" data-sub="hold">持仓 <span class="num dim">(8)</span></button>
+          <button class="sub-tab" data-sub="order">当日委托</button>
+          <button class="sub-tab" data-sub="deal">当日成交</button>
+          <button class="sub-tab" data-sub="flow">资金流水</button>
+          <div style="flex:1"></div>
+          <span class="faint">模拟盘 · 已接入仿真撮合</span>
+        </div>
+
+        <div class="sub-page" data-sub-page="hold" style="flex:1;display:flex;flex-direction:center">
+          <div class="table-scroll" style="flex:1">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>代码</th><th>名称</th>
+                  <th class="num-col">持仓</th><th class="num-col">可用</th>
+                  <th class="num-col">成本</th><th class="num-col">现价</th>
+                  <th class="num-col">市值</th><th class="num-col">盈亏</th><th class="num-col">盈亏%</th>
+                  <th class="num-col">当日盈亏</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="active"><td class="num">002531</td><td>天顺风能</td><td class="num-col num">50,000</td><td class="num-col num">50,000</td><td class="num-col num">11.20</td><td class="num-col up num">12.84</td><td class="num-col num">642,000</td><td class="num-col up num">+82,000</td><td class="num-col up num">+14.64%</td><td class="num-col up num">+58,400</td></tr>
+                <tr><td class="num">300274</td><td>阳光电源</td><td class="num-col num">8,000</td><td class="num-col num">8,000</td><td class="num-col num">72.40</td><td class="num-col up num">78.50</td><td class="num-col num">628,000</td><td class="num-col up num">+48,800</td><td class="num-col up num">+8.43%</td><td class="num-col up num">+13,760</td></tr>
+                <tr><td class="num">300750</td><td>宁德时代</td><td class="num-col num">3,000</td><td class="num-col num">3,000</td><td class="num-col num">175.20</td><td class="num-col down num">186.20</td><td class="num-col num">558,600</td><td class="num-col up num">+33,000</td><td class="num-col up num">+6.28%</td><td class="num-col down num">-5,880</td></tr>
+                <tr><td class="num">002202</td><td>金风科技</td><td class="num-col num">40,000</td><td class="num-col num">40,000</td><td class="num-col num">7.85</td><td class="num-col up num">8.62</td><td class="num-col num">344,800</td><td class="num-col up num">+30,800</td><td class="num-col up num">+9.81%</td><td class="num-col up num">+10,840</td></tr>
+                <tr><td class="num">688981</td><td>中芯国际</td><td class="num-col num">2,000</td><td class="num-col num">0</td><td class="num-col num">95.50</td><td class="num-col up num">98.40</td><td class="num-col num">196,800</td><td class="num-col up num">+5,800</td><td class="num-col up num">+3.04%</td><td class="num-col up num">+5,760</td></tr>
+                <tr><td class="num">601899</td><td>紫金矿业</td><td class="num-col num">15,000</td><td class="num-col num">15,000</td><td class="num-col num">16.80</td><td class="num-col up num">17.85</td><td class="num-col num">267,750</td><td class="num-col up num">+15,750</td><td class="num-col up num">+6.25%</td><td class="num-col up num">+7,425</td></tr>
+                <tr><td class="num">601012</td><td>隆基绿能</td><td class="num-col num">20,000</td><td class="num-col num">20,000</td><td class="num-col num">19.20</td><td class="num-col down num">18.35</td><td class="num-col num">367,000</td><td class="num-col down num">-17,000</td><td class="num-col down num">-4.43%</td><td class="num-col down num">-8,740</td></tr>
+                <tr><td class="num">510300</td><td>沪深300ETF</td><td class="num-col num">100,000</td><td class="num-col num">100,000</td><td class="num-col num">3.780</td><td class="num-col up num">3.892</td><td class="num-col num">389,200</td><td class="num-col up num">+11,200</td><td class="num-col up num">+2.96%</td><td class="num-col up num">+3,560</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="sub-page" data-sub-page="order" style="flex:1;display:none;flex-direction:column">
+          <div class="table-scroll" style="flex:1">
+            <table class="data-table">
+              <thead><tr><th>时间</th><th>代码</th><th>名称</th><th>方向</th><th class="num-col">委托价</th><th class="num-col">委托量</th><th class="num-col">成交价</th><th class="num-col">成交量</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr><td class="num">14:28:15</td><td class="num">002531</td><td>天顺风能</td><td class="up">买入</td><td class="num-col num">12.84</td><td class="num-col num">5,000</td><td class="num-col num">12.84</td><td class="num-col num">5,000</td><td><span class="status-pill done">已成交</span></td></tr>
+                <tr><td class="num">14:15:42</td><td class="num">300274</td><td>阳光电源</td><td class="down">卖出</td><td class="num-col num">78.50</td><td class="num-col num">2,000</td><td class="num-col num">78.42</td><td class="num-col num">1,500</td><td><span class="status-pill part">部分成交</span></td></tr>
+                <tr><td class="num">13:58:03</td><td class="num">601012</td><td>隆基绿能</td><td class="down">卖出</td><td class="num-col num">18.40</td><td class="num-col num">10,000</td><td class="num-col num">—</td><td class="num-col num">0</td><td><span class="status-pill cancel">已撤单</span></td></tr>
+                <tr><td class="num">13:32:18</td><td class="num">688981</td><td>中芯国际</td><td class="up">买入</td><td class="num-col num">98.20</td><td class="num-col num">2,000</td><td class="num-col num">98.15</td><td class="num-col num">2,000</td><td><span class="status-pill done">已成交</span></td></tr>
+                <tr><td class="num">11:05:55</td><td class="num">300750</td><td>宁德时代</td><td class="up">买入</td><td class="num-col num">186.50</td><td class="num-col num">1,000</td><td class="num-col num">—</td><td class="num-col num">0</td><td><span class="status-pill wait">待成交</span></td></tr>
+                <tr><td class="num">10:48:21</td><td class="num">002202</td><td>金风科技</td><td class="up">买入</td><td class="num-col num">8.60</td><td class="num-col num">10,000</td><td class="num-col num">8.58</td><td class="num-col num">10,000</td><td><span class="status-pill done">已成交</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="sub-page" data-sub-page="deal" style="flex:1;display:none;flex-direction:column">
+          <div class="table-scroll" style="flex:1">
+            <table class="data-table">
+              <thead><tr><th>时间</th><th>代码</th><th>名称</th><th>方向</th><th class="num-col">成交价</th><th class="num-col">数量</th><th class="num-col">金额</th><th class="num-col">手续费</th></tr></thead>
+              <tbody>
+                <tr><td class="num">14:28:15</td><td class="num">002531</td><td>天顺风能</td><td class="up">买入</td><td class="num-col num">12.84</td><td class="num-col num">5,000</td><td class="num-col num">64,200.00</td><td class="num-col num">19.26</td></tr>
+                <tr><td class="num">13:32:18</td><td class="num">688981</td><td>中芯国际</td><td class="up">买入</td><td class="num-col num">98.15</td><td class="num-col num">2,000</td><td class="num-col num">196,300.00</td><td class="num-col num">58.89</td></tr>
+                <tr><td class="num">10:48:21</td><td class="num">002202</td><td>金风科技</td><td class="up">买入</td><td class="num-col num">8.58</td><td class="num-col num">10,000</td><td class="num-col num">85,800.00</td><td class="num-col num">25.74</td></tr>
+                <tr><td class="num">10:15:08</td><td class="num">510300</td><td>沪深300ETF</td><td class="down">卖出</td><td class="num-col num">3.885</td><td class="num-col num">50,000</td><td class="num-col num">194,250.00</td><td class="num-col num">1.94</td></tr>
+                <tr><td class="num">09:55:42</td><td class="num">601899</td><td>紫金矿业</td><td class="up">买入</td><td class="num-col num">17.20</td><td class="num-col num">5,000</td><td class="num-col num">86,000.00</td><td class="num-col num">25.80</td></tr>
+                <tr><td class="num">09:32:15</td><td class="num">300059</td><td>东方财富</td><td class="down">卖出</td><td class="num-col num">14.55</td><td class="num-col num">10,000</td><td class="num-col num">145,500.00</td><td class="num-col num">43.65</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="sub-page" data-sub-page="flow" style="flex:1;display:none;flex-direction:column">
+          <div class="table-scroll" style="flex:1">
+            <table class="data-table">
+              <thead><tr><th>时间</th><th>类型</th><th>摘要</th><th class="num-col">发生额</th><th class="num-col">余额</th></tr></thead>
+              <tbody>
+                <tr><td class="num">09:30:00</td><td class="amber">入金</td><td>初始资金划入</td><td class="num-col up num">+1,000,000.00</td><td class="num-col num">1,000,000.00</td></tr>
+                <tr><td class="num">09:32:15</td><td class="down">卖出</td><td>东方财富 10000股</td><td class="num-col up num">+145,456.35</td><td class="num-col num">1,145,456.35</td></tr>
+                <tr><td class="num">09:55:42</td><td class="up">买入</td><td>紫金矿业 5000股</td><td class="num-col down num">-86,025.80</td><td class="num-col num">1,059,430.55</td></tr>
+                <tr><td class="num">10:48:21</td><td class="up">买入</td><td>金风科技 10000股</td><td class="num-col down num">-85,825.74</td><td class="num-col num">973,604.81</td></tr>
+                <tr><td class="num">13:32:18</td><td class="up">买入</td><td>中芯国际 2000股</td><td class="num-col down num">-196,358.89</td><td class="num-col num">777,245.92</td></tr>
+                <tr><td class="num">14:28:15</td><td class="up">买入</td><td>天顺风能 5000股</td><td class="num-col down num">-64,219.26</td><td class="num-col num">713,026.66</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      <!-- 右：委托 + 快速交易 -->
+      <aside class="col-300 glass" style="display:flex;flex-direction:column">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[Q1]</span>快速交易</span>
+          <span class="meta">002531</span>
+        </div>
+        <div class="info-body" style="display:flex;flex-direction:column;gap:8px">
+          <input class="trade-input" value="002531" />
+          <div class="faint" style="font-size:9px">天顺风能 · 风电设备 · 深A</div>
+          <div style="display:flex;gap:6px">
+            <button class="side-btn buy active">买入</button>
+            <button class="side-btn sell">卖出</button>
+          </div>
+          <div>
+            <div class="faint" style="font-size:9px;margin-bottom:2px">价格（当前 12.84）</div>
+            <input class="trade-input" value="12.84" />
+          </div>
+          <div>
+            <div class="faint" style="font-size:9px;margin-bottom:2px">数量（股）</div>
+            <input class="trade-input" value="1000" />
+            <div class="pct-quick" style="margin-top:4px">
+              <span class="qbtn">25%</span><span class="qbtn">50%</span>
+              <span class="qbtn">75%</span><span class="qbtn">100%</span>
+            </div>
+          </div>
+          <div class="kv-row" style="padding:4px 0;border-top:1px solid var(--glass-border)">
+            <span class="k">预估金额</span><span class="v amber num">12,840.00</span>
+          </div>
+          <div class="kv-row"><span class="k">预估手续费</span><span class="v num">3.85</span></div>
+          <button class="action-btn primary" style="width:100%">提交委托</button>
+        </div>
+      </aside>
+    </div>
+  </div><!-- /tab-page 04 -->
+
+  <!-- ==================== TAB 05: ETF ==================== -->
+  <div class="tab-page" data-tab="05">
+    <div class="page-workspace">
+
+      <!-- 左：ETF 列表 -->
+      <aside class="col-260 glass">
+        <div class="sub-tab-bar" style="flex-wrap:wrap;height:auto;padding:4px 6px;row-gap:4px">
+          <span class="sub-tab active">全部</span>
+          <span class="sub-tab">宽基</span>
+          <span class="sub-tab">行业</span>
+          <span class="sub-tab">主题</span>
+          <span class="sub-tab">跨境</span>
+          <span class="sub-tab">债券</span>
+          <span class="sub-tab">商品</span>
+        </div>
+        <div class="symbol-items" style="flex:1">
+          <div class="symbol-item active">
+            <span class="code num">510300</span>
+            <span class="name">沪深300ETF</span>
+            <span class="price"><b class="up num">3.892</b><span class="up num">+0.92%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">510500</span>
+            <span class="name">中证500ETF</span>
+            <span class="price"><b class="up num">6.184</b><span class="up num">+1.36%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">159915</span>
+            <span class="name">创业板ETF</span>
+            <span class="price"><b class="down num">2.156</b><span class="down num">-0.84%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">588000</span>
+            <span class="name">科创50ETF</span>
+            <span class="price"><b class="up num">0.986</b><span class="up num">+1.32%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">512100</span>
+            <span class="name">中证1000ETF</span>
+            <span class="price"><b class="up num">6.218</b><span class="up num">+1.57%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">512880</span>
+            <span class="name">证券ETF</span>
+            <span class="price"><b class="up num">1.452</b><span class="up num">+2.15%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">512170</span>
+            <span class="name">医疗ETF</span>
+            <span class="price"><b class="down num">0.486</b><span class="down num">-0.68%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">515030</span>
+            <span class="name">新能源车ETF</span>
+            <span class="price"><b class="up num">1.245</b><span class="up num">+1.85%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">515790</span>
+            <span class="name">光伏ETF</span>
+            <span class="price"><b class="down num">0.862</b><span class="down num">-1.24%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">513100</span>
+            <span class="name">纳指ETF</span>
+            <span class="price"><b class="up num">1.842</b><span class="up num">+0.78%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">518880</span>
+            <span class="name">黄金ETF</span>
+            <span class="price"><b class="up num">5.862</b><span class="up num">+0.45%</span></span>
+          </div>
+          <div class="symbol-item">
+            <span class="code num">511010</span>
+            <span class="name">国债ETF</span>
+            <span class="price"><b class="num">108.420</b><span class="num">+0.05%</span></span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中央分析 -->
+      <main class="col-flex">
+        <div class="quote-strip glass glass-strong">
+          <div class="sym">
+            <span class="code num">510300</span>
+            <span class="name">沪深300ETF · 跟踪沪深300指数</span>
+          </div>
+          <span class="price up num">3.892</span>
+          <span class="chg up num"><span class="arrow">▲</span>+0.036 +0.92%</span>
+          <div class="stats">
+            <div class="stat"><span>IOPV</span><b class="num">3.891</b></div>
+            <div class="stat"><span>溢价率</span><b class="amber num">+0.03%</b></div>
+            <div class="stat"><span>成交额</span><b class="num">12.5亿</b></div>
+            <div class="stat"><span>份额</span><b class="num">580亿份</b></div>
+            <div class="stat"><span>规模</span><b class="num">2,257亿</b></div>
+          </div>
+        </div>
+
+        <div class="sub-tab-bar">
+          <button class="sub-tab active" data-etf="nav">净值走势</button>
+          <button class="sub-tab" data-etf="prem">折溢价分析</button>
+          <button class="sub-tab" data-etf="hold">持仓明细</button>
+          <button class="sub-tab" data-etf="te">跟踪误差</button>
+        </div>
+
+        <div class="chart-section" style="flex:1;border-radius:0 0 12px 12px">
+          <div class="chart-canvas" data-etf-page="nav">
+            <svg viewBox="0 0 800 320" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="etfArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
+                </linearGradient>
+              </defs>
+              <line x1="40" y1="40" x2="780" y2="40" class="grid-line-major"/>
+              <line x1="40" y1="110" x2="780" y2="110" class="grid-line"/>
+              <line x1="40" y1="180" x2="780" y2="180" class="grid-line-major"/>
+              <line x1="40" y1="250" x2="780" y2="250" class="grid-line"/>
+              <text x="35" y="44" text-anchor="end" class="axis-text">4.10</text>
+              <text x="35" y="114" text-anchor="end" class="axis-text">3.95</text>
+              <text x="35" y="184" text-anchor="end" class="axis-text-amber">3.80</text>
+              <text x="35" y="254" text-anchor="end" class="axis-text">3.65</text>
+              <text x="60" y="305" class="axis-text">4月</text>
+              <text x="200" y="305" class="axis-text">5月</text>
+              <text x="340" y="305" class="axis-text">6月</text>
+              <text x="480" y="305" class="axis-text">7月</text>
+              <text x="620" y="305" class="axis-text">8月</text>
+              <text x="770" y="305" text-anchor="end" class="axis-text">9月</text>
+              <!-- 同类平均（灰色虚线） -->
+              <polyline points="60,200 180,195 300,185 420,175 540,170 660,160 780,155"
+                fill="none" stroke="#888" stroke-width="1.2" stroke-dasharray="4 3"/>
+              <!-- 本 ETF 净值 -->
+              <path d="M60,210 L120,200 L180,195 L240,180 L300,175 L360,160 L420,155 L480,140 L540,135 L600,120 L660,110 L720,95 L780,85 L780,270 L60,270 Z" fill="url(#etfArea)"/>
+              <polyline points="60,210 120,200 180,195 240,180 300,175 360,160 420,155 480,140 540,135 600,120 660,110 720,95 780,85"
+                fill="none" stroke="#00d4ff" stroke-width="2"/>
+              <g font-size="9" font-family="monospace">
+                <rect x="620" y="55" width="14" height="2"/>
+                <text x="640" y="58" fill="#00d4ff">510300</text>
+                <line x1="620" y1="68" x2="634" y2="68" stroke="#888" stroke-dasharray="3 2"/>
+                <text x="640" y="71" fill="#888">同类平均</text>
+              </g>
+            </svg>
+          </div>
+          <div class="chart-canvas" data-etf-page="prem" style="display:none">
+            <svg viewBox="0 0 800 320" preserveAspectRatio="none">
+              <line x1="40" y1="160" x2="780" y2="160" stroke="rgba(255,255,255,0.2)"/>
+              <text x="35" y="44" text-anchor="end" class="axis-text">+0.8%</text>
+              <text x="35" y="114" text-anchor="end" class="axis-text">+0.4%</text>
+              <text x="35" y="164" text-anchor="end" class="axis-text">0%</text>
+              <text x="35" y="214" text-anchor="end" class="axis-text">-0.4%</text>
+              <text x="35" y="284" text-anchor="end" class="axis-text">-0.8%</text>
+              <!-- 溢价率曲线 -->
+              <polyline points="60,140 120,130 180,150 240,120 300,100 360,130 420,90 480,110 540,80 600,100 660,70 720,90 780,85"
+                fill="none" stroke="#00d4ff" stroke-width="1.8"/>
+              <!-- 0 轴填充 -->
+              <path d="M60,140 L120,130 L180,150 L240,120 L300,100 L360,130 L420,90 L480,110 L540,80 L600,100 L660,70 L720,90 L780,85 L780,160 L60,160 Z"
+                fill="rgba(0,212,255,0.08)"/>
+              <text x="60" y="305" class="axis-text">4月</text>
+              <text x="200" y="305" class="axis-text">5月</text>
+              <text x="340" y="305" class="axis-text">6月</text>
+              <text x="480" y="305" class="axis-text">7月</text>
+              <text x="620" y="305" class="axis-text">8月</text>
+              <text x="770" y="305" text-anchor="end" class="axis-text">9月</text>
+            </svg>
+          </div>
+          <div class="chart-canvas" data-etf-page="hold" style="display:none;overflow:auto">
+            <table class="data-table" style="width:100%">
+              <thead><tr><th>代码</th><th>名称</th><th class="num-col">占净值比</th><th class="num-col">持仓市值</th><th class="num-col">涨跌幅</th></tr></thead>
+              <tbody>
+                <tr class="active"><td class="num">600519</td><td>贵州茅台</td><td class="num-col num">6.82%</td><td class="num-col num">154亿</td><td class="num-col down num">-0.45%</td></tr>
+                <tr><td class="num">300750</td><td>宁德时代</td><td class="num-col num">5.94%</td><td class="num-col num">134亿</td><td class="num-col down num">-1.05%</td></tr>
+                <tr><td class="num">601318</td><td>中国平安</td><td class="num-col num">3.86%</td><td class="num-col num">87亿</td><td class="num-col down num">-0.82%</td></tr>
+                <tr><td class="num">600036</td><td>招商银行</td><td class="num-col num">3.42%</td><td class="num-col num">77亿</td><td class="num-col up num">+0.56%</td></tr>
+                <tr><td class="num">000858</td><td>五粮液</td><td class="num-col num">2.86%</td><td class="num-col num">65亿</td><td class="num-col up num">+1.23%</td></tr>
+                <tr><td class="num">601899</td><td>紫金矿业</td><td class="num-col num">2.45%</td><td class="num-col num">55亿</td><td class="num-col up num">+2.87%</td></tr>
+                <tr><td class="num">600900</td><td>长江电力</td><td class="num-col num">2.18%</td><td class="num-col num">49亿</td><td class="num-col up num">+0.34%</td></tr>
+                <tr><td class="num">601012</td><td>隆基绿能</td><td class="num-col num">1.96%</td><td class="num-col num">44亿</td><td class="num-col down num">-2.31%</td></tr>
+                <tr><td class="num">688981</td><td>中芯国际</td><td class="num-col num">1.84%</td><td class="num-col num">41亿</td><td class="num-col up num">+3.02%</td></tr>
+                <tr><td class="num">002594</td><td>比亚迪</td><td class="num-col num">1.72%</td><td class="num-col num">39亿</td><td class="num-col up num">+0.87%</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="chart-canvas" data-etf-page="te" style="display:none;overflow:auto">
+            <div class="metric-grid cols-3" style="padding:16px">
+              <div class="metric-card"><div class="m-label">跟踪误差</div><div class="m-value amber num">0.35%</div></div>
+              <div class="metric-card"><div class="m-label">信息比率</div><div class="m-value num">0.98</div></div>
+              <div class="metric-card"><div class="m-label">拟合度</div><div class="m-value up num">99.2%</div></div>
+              <div class="metric-card"><div class="m-label">年化偏离</div><div class="m-value num">0.12%</div></div>
+              <div class="metric-card"><div class="m-label">日均跟踪</div><div class="m-value num">0.08%</div></div>
+              <div class="metric-card"><div class="m-label">最大偏离</div><div class="m-value num">0.42%</div></div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 右：套利 + 轮动 -->
+      <aside class="col-280 glass">
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[R1]</span>套利机会</span><span class="meta">6</span></div>
+          <div class="table-scroll" style="max-height:180px">
+            <table class="data-table">
+              <thead><tr><th>代码</th><th class="num-col">溢价率</th><th class="num-col">空间</th></tr></thead>
+              <tbody>
+                <tr class="active"><td class="num">513100</td><td class="num-col up num">+1.28%</td><td class="num-col up num">+1.2%</td></tr>
+                <tr><td class="num">513500</td><td class="num-col up num">+0.86%</td><td class="num-col up num">+0.78%</td></tr>
+                <tr><td class="num">513520</td><td class="num-col up num">+0.62%</td><td class="num-col up num">+0.55%</td></tr>
+                <tr><td class="num">159920</td><td class="num-col num">+0.32%</td><td class="num-col num">+0.28%</td></tr>
+                <tr><td class="num">510300</td><td class="num-col num">+0.03%</td><td class="num-col num">+0.02%</td></tr>
+                <tr><td class="num">588000</td><td class="num-col down num">-0.12%</td><td class="num-col down num">-0.10%</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[R2]</span>轮动信号</span><span class="meta">5</span></div>
+          <div class="mini-list">
+            <div class="mini-item"><span class="mi-name">宽基 → 成长</span><span class="up mi-val">超配</span></div>
+            <div class="mini-item"><span class="mi-name">港股 → A股</span><span class="up mi-val">加仓</span></div>
+            <div class="mini-item"><span class="mi-name">债券 → 股票</span><span class="amber mi-val">中性</span></div>
+            <div class="mini-item"><span class="mi-name">商品 → 黄金</span><span class="up mi-val">持有</span></div>
+            <div class="mini-item"><span class="mi-name">行业 → 风电</span><span class="up mi-val">超配</span></div>
+          </div>
+        </div>
+        <div class="info-section" style="flex:1">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[R3]</span>轮动绩效</span></div>
+          <div class="metric-grid">
+            <div class="metric-card"><div class="m-label">近1月</div><div class="m-value up num">+5.2%</div></div>
+            <div class="metric-card"><div class="m-label">近3月</div><div class="m-value up num">+12.8%</div></div>
+            <div class="metric-card"><div class="m-label">近6月</div><div class="m-value up num">+18.4%</div></div>
+            <div class="metric-card"><div class="m-label">年化</div><div class="m-value amber num">+24.6%</div></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div><!-- /tab-page 05 -->
+
+  <!-- ==================== TAB 06: 数据 ==================== -->
+  <div class="tab-page" data-tab="06">
+    <div class="page-workspace">
+
+      <!-- 左：数据集目录 -->
+      <aside class="col-280 glass">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[D1]</span>数据集</span>
+          <span class="meta">26</span>
+        </div>
+        <div class="tree-search">
+          <span class="faint">⌕</span>
+          <input placeholder="搜索数据集..." />
+        </div>
+        <div class="tree">
+          <div class="tree-group open">
+            <div class="tree-group-header"><span class="arrow">▶</span>行情数据</div>
+            <div class="tree-children">
+              <div class="tree-leaf active"><span class="dot ok fresh"></span>stock_daily <span class="faint">日线</span></div>
+              <div class="tree-leaf"><span class="dot ok fresh"></span>stock_min <span class="faint">分钟线</span></div>
+              <div class="tree-leaf"><span class="dot warn fresh"></span>stock_tick <span class="faint">Tick</span></div>
+              <div class="tree-leaf"><span class="dot ok fresh"></span>adj_factor <span class="faint">复权</span></div>
+            </div>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-header"><span class="arrow">▶</span>财务数据</div>
+            <div class="tree-children">
+              <div class="tree-leaf"><span class="dot ok"></span>balancesheet</div>
+              <div class="tree-leaf"><span class="dot ok"></span>income</div>
+              <div class="tree-leaf"><span class="dot ok"></span>cashflow</div>
+              <div class="tree-leaf"><span class="dot warn"></span>finance_indicator</div>
+            </div>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-header"><span class="arrow">▶</span>因子数据</div>
+            <div class="tree-children">
+              <div class="tree-leaf"><span class="dot ok"></span>tech_factor</div>
+              <div class="tree-leaf"><span class="dot ok"></span>fund_factor</div>
+              <div class="tree-leaf"><span class="dot ok"></span>vp_factor</div>
+              <div class="tree-leaf"><span class="dot err"></span>alt_factor</div>
+            </div>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-header"><span class="arrow">▶</span>宏观数据</div>
+            <div class="tree-children">
+              <div class="tree-leaf"><span class="dot ok"></span>gdp</div>
+              <div class="tree-leaf"><span class="dot ok"></span>cpi</div>
+              <div class="tree-leaf"><span class="dot ok"></span>pmi</div>
+              <div class="tree-leaf"><span class="dot ok"></span>interest_rate</div>
+            </div>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-header"><span class="arrow">▶</span>ETF 数据</div>
+            <div class="tree-children">
+              <div class="tree-leaf"><span class="dot ok"></span>etf_nav</div>
+              <div class="tree-leaf"><span class="dot ok"></span>etf_hold</div>
+              <div class="tree-leaf"><span class="dot ok"></span>etf_prem</div>
+            </div>
+          </div>
+          <div class="tree-group">
+            <div class="tree-group-header"><span class="arrow">▶</span>另类数据</div>
+            <div class="tree-children">
+              <div class="tree-leaf"><span class="dot warn"></span>lhb <span class="faint">龙虎榜</span></div>
+              <div class="tree-leaf"><span class="dot ok"></span>margin <span class="faint">融资融券</span></div>
+              <div class="tree-leaf"><span class="dot ok"></span>hsgt <span class="faint">北向</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中央数据预览 -->
+      <main class="col-flex">
+        <div class="toolbar-row">
+          <span class="amber">stock_daily</span>
+          <span class="faint">日线行情</span>
+          <div class="v-sep"></div>
+          <span class="dim">5,234 只股票</span>
+          <span class="dim">2010-至今</span>
+          <span class="amber">≈ 1,860 万行</span>
+          <div class="spacer"></div>
+          <span class="faint">最近更新</span>
+          <span class="up num">2026-09-12 15:30</span>
+        </div>
+        <div class="toolbar-row">
+          <span class="dim">日期</span>
+          <span class="select-box">2026-09-01</span>
+          <span class="dim">→</span>
+          <span class="select-box">2026-09-12</span>
+          <span class="dim">代码</span>
+          <input class="num-input" style="width:90px" value="002531"/>
+          <span class="dim">字段</span>
+          <span class="select-box">全部</span>
+          <div class="spacer"></div>
+          <button class="action-btn primary">执行查询</button>
+          <button class="action-btn">导出 CSV</button>
+        </div>
+        <div class="table-scroll" style="flex:1">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>trade_date</th><th>ts_code</th><th class="num-col">open</th>
+                <th class="num-col">high</th><th class="num-col">low</th><th class="num-col">close</th>
+                <th class="num-col">pre_close</th><th class="num-col">change</th>
+                <th class="num-col">pct_chg</th><th class="num-col">vol</th><th class="num-col">amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="active"><td class="num">2026-09-12</td><td class="num">002531.SZ</td><td class="num-col num">11.80</td><td class="num-col num">12.84</td><td class="num-col num">11.68</td><td class="num-col up num">12.84</td><td class="num-col num">11.68</td><td class="num-col up num">+1.16</td><td class="num-col up num">+9.98%</td><td class="num-col num">2,865,000</td><td class="num-col num">35.2亿</td></tr>
+              <tr><td class="num">2026-09-11</td><td class="num">002531.SZ</td><td class="num-col num">11.50</td><td class="num-col num">11.85</td><td class="num-col num">11.42</td><td class="num-col up num">11.68</td><td class="num-col num">11.42</td><td class="num-col up num">+0.26</td><td class="num-col up num">+2.28%</td><td class="num-col num">856,000</td><td class="num-col num">9.98亿</td></tr>
+              <tr><td class="num">2026-09-10</td><td class="num">002531.SZ</td><td class="num-col num">11.35</td><td class="num-col num">11.55</td><td class="num-col num">11.28</td><td class="num-col down num">11.42</td><td class="num-col num">11.55</td><td class="num-col down num">-0.13</td><td class="num-col down num">-1.13%</td><td class="num-col num">425,000</td><td class="num-col num">4.85亿</td></tr>
+              <tr><td class="num">2026-09-09</td><td class="num">002531.SZ</td><td class="num-col num">11.60</td><td class="num-col num">11.72</td><td class="num-col num">11.48</td><td class="num-col up num">11.55</td><td class="num-col num">11.40</td><td class="num-col up num">+0.15</td><td class="num-col up num">+1.32%</td><td class="num-col num">512,000</td><td class="num-col num">5.92亿</td></tr>
+              <tr><td class="num">2026-09-08</td><td class="num">002531.SZ</td><td class="num-col num">11.45</td><td class="num-col num">11.58</td><td class="num-col num">11.32</td><td class="num-col up num">11.40</td><td class="num-col num">11.32</td><td class="num-col up num">+0.08</td><td class="num-col up num">+0.71%</td><td class="num-col num">385,000</td><td class="num-col num">4.38亿</td></tr>
+              <tr><td class="num">2026-09-05</td><td class="num">002531.SZ</td><td class="num-col num">11.20</td><td class="num-col num">11.45</td><td class="num-col num">11.15</td><td class="num-col up num">11.32</td><td class="num-col num">11.18</td><td class="num-col up num">+0.14</td><td class="num-col up num">+1.25%</td><td class="num-col num">456,000</td><td class="num-col num">5.16亿</td></tr>
+              <tr><td class="num">2026-09-04</td><td class="num">002531.SZ</td><td class="num-col num">11.10</td><td class="num-col num">11.28</td><td class="num-col num">11.05</td><td class="num-col up num">11.18</td><td class="num-col num">11.05</td><td class="num-col up num">+0.13</td><td class="num-col up num">+1.18%</td><td class="num-col num">398,000</td><td class="num-col num">4.45亿</td></tr>
+              <tr><td class="num">2026-09-03</td><td class="num">002531.SZ</td><td class="num-col num">11.25</td><td class="num-col num">11.32</td><td class="num-col num">11.02</td><td class="num-col down num">11.05</td><td class="num-col num">11.30</td><td class="num-col down num">-0.25</td><td class="num-col down num">-2.21%</td><td class="num-col num">523,000</td><td class="num-col num">5.85亿</td></tr>
+              <tr><td class="num">2026-09-02</td><td class="num">002531.SZ</td><td class="num-col num">11.30</td><td class="num-col num">11.45</td><td class="num-col num">11.18</td><td class="num-col up num">11.30</td><td class="num-col num">11.22</td><td class="num-col up num">+0.08</td><td class="num-col up num">+0.71%</td><td class="num-col num">356,000</td><td class="num-col num">4.02亿</td></tr>
+              <tr><td class="num">2026-09-01</td><td class="num">002531.SZ</td><td class="num-col num">11.15</td><td class="num-col num">11.38</td><td class="num-col num">11.10</td><td class="num-col up num">11.22</td><td class="num-col num">11.08</td><td class="num-col up num">+0.14</td><td class="num-col up num">+1.26%</td><td class="num-col num">412,000</td><td class="num-col num">4.62亿</td></tr>
+              <tr><td class="num">2026-08-29</td><td class="num">002531.SZ</td><td class="num-col num">11.05</td><td class="num-col num">11.20</td><td class="num-col num">10.98</td><td class="num-col up num">11.08</td><td class="num-col num">11.02</td><td class="num-col up num">+0.06</td><td class="num-col up num">+0.54%</td><td class="num-col num">325,000</td><td class="num-col num">3.58亿</td></tr>
+              <tr><td class="num">2026-08-28</td><td class="num">002531.SZ</td><td class="num-col num">10.95</td><td class="num-col num">11.12</td><td class="num-col num">10.90</td><td class="num-col up num">11.02</td><td class="num-col num">10.92</td><td class="num-col up num">+0.10</td><td class="num-col up num">+0.92%</td><td class="num-col num">298,000</td><td class="num-col num">3.25亿</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="toolbar-row" style="border-top:1px solid var(--glass-border)">
+          <span class="dim">共 <b class="amber num">18,600,000</b> 行</span>
+          <span class="dim">当前 1-12</span>
+          <div class="spacer"></div>
+          <button class="tf-btn">‹ 上一页</button>
+          <button class="tf-btn active">1</button>
+          <button class="tf-btn">2</button>
+          <button class="tf-btn">3</button>
+          <button class="tf-btn">…</button>
+          <button class="tf-btn">155万</button>
+          <button class="tf-btn">下一页 ›</button>
+        </div>
+      </main>
+
+      <!-- 右：质量/覆盖 -->
+      <aside class="col-280 glass">
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[Q1]</span>数据质量</span></div>
+          <div class="metric-grid">
+            <div class="metric-card"><div class="m-label">完整率</div><div class="m-value up num">99.8%</div></div>
+            <div class="metric-card"><div class="m-label">准确率</div><div class="m-value up num">99.95%</div></div>
+            <div class="metric-card"><div class="m-label">一致性</div><div class="m-value up num">99.7%</div></div>
+            <div class="metric-card"><div class="m-label">时效性</div><div class="m-value amber">实时</div></div>
+          </div>
+        </div>
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[Q2]</span>覆盖矩阵</span></div>
+          <div class="cov-matrix">
+            <div></div><div class="cov-h">沪</div><div class="cov-h">深</div><div class="cov-h">北</div><div class="cov-h">港</div><div class="cov-h">美</div>
+            <div class="cov-l">日线</div>
+            <div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c part">◐</div><div class="cov-c none">✕</div>
+            <div class="cov-l">分钟线</div>
+            <div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c part">◐</div><div class="cov-c none">✕</div><div class="cov-c none">✕</div>
+            <div class="cov-l">财务</div>
+            <div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c part">◐</div><div class="cov-c part">◐</div>
+            <div class="cov-l">因子</div>
+            <div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c part">◐</div><div class="cov-c none">✕</div><div class="cov-c none">✕</div>
+            <div class="cov-l">ETF</div>
+            <div class="cov-c full">✓</div><div class="cov-c full">✓</div><div class="cov-c none">✕</div><div class="cov-c part">◐</div><div class="cov-c none">✕</div>
+          </div>
+        </div>
+        <div class="info-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[Q3]</span>更新日志</span></div>
+          <div class="mini-list">
+            <div class="mini-item"><span class="mi-name">stock_daily</span><span class="faint num">15:30</span><span class="status-pill done">完成</span></div>
+            <div class="mini-item"><span class="mi-name">stock_min</span><span class="faint num">15:00</span><span class="status-pill done">完成</span></div>
+            <div class="mini-item"><span class="mi-name">adj_factor</span><span class="faint num">14:30</span><span class="status-pill done">完成</span></div>
+            <div class="mini-item"><span class="mi-name">etf_nav</span><span class="faint num">15:05</span><span class="status-pill done">完成</span></div>
+            <div class="mini-item"><span class="mi-name">margin</span><span class="faint num">14:00</span><span class="status-pill done">完成</span></div>
+            <div class="mini-item"><span class="mi-name">hsgt</span><span class="faint num">15:01</span><span class="status-pill done">完成</span></div>
+            <div class="mini-item"><span class="mi-name">lhb</span><span class="faint num">17:30</span><span class="status-pill wait">待跑</span></div>
+            <div class="mini-item"><span class="mi-name">alt_factor</span><span class="faint num">—</span><span class="status-pill cancel">失败</span></div>
+          </div>
+        </div>
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[Q4]</span>数据血缘</span></div>
+          <div class="blood-line">
+            <span class="blood-node">Tushare</span>
+            <span class="blood-arrow">→</span>
+            <span class="blood-node">清洗</span>
+            <span class="blood-arrow">→</span>
+            <span class="blood-node">CK</span>
+            <span class="blood-arrow">→</span>
+            <span class="blood-node">API</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div><!-- /tab-page 06 -->
+
+  <!-- ==================== TAB 07: 同步 ==================== -->
+  <div class="tab-page" data-tab="07">
+    <div class="page-workspace">
+
+      <!-- 左：任务列表 -->
+      <aside class="col-300 glass">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[S1]</span>同步任务</span>
+          <span class="meta">21</span>
+        </div>
+        <div class="info-body" style="display:flex;gap:8px;padding:6px 12px">
+          <span class="status-pill running">运行中 3</span>
+          <span class="status-pill wait">等待 2</span>
+          <span class="status-pill done">完成 15</span>
+          <span class="status-pill cancel">失败 1</span>
+        </div>
+        <div class="mini-list" style="flex:1">
+          <div class="task-item active">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">rt_idx_k 实时K线</span><span class="t-tag rt">实时</span></div>
+            <div class="t-meta">Tushare → ClickHouse · 12条/秒</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">rt_idx_min 分钟</span><span class="t-tag rt">实时</span></div>
+            <div class="t-meta">Wind → Redis · 60条/分</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">stock_daily 日线</span><span class="t-tag">批量</span></div>
+            <div class="t-meta">Tushare → CK · 5,234只</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot warn"></span><span class="t-name">stock_min_5m 5分钟</span><span class="t-tag">增量</span></div>
+            <div class="t-meta">聚源 → CK · 延迟 3.2s</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot err"></span><span class="t-name">etf_factor 因子</span><span class="t-tag">批量</span></div>
+            <div class="t-meta">本地 → CK · 上次失败</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">finance_q 季报</span><span class="t-tag">批量</span></div>
+            <div class="t-meta">Tushare → PG · 已完成</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">hsgt_north 北向</span><span class="t-tag rt">实时</span></div>
+            <div class="t-meta">东财 → Redis · 5s</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot warn"></span><span class="t-name">margin 两融</span><span class="t-tag">增量</span></div>
+            <div class="t-meta">Tushare → CK · 等待中</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">macro_cpi 宏观</span><span class="t-tag">全量</span></div>
+            <div class="t-meta">Wind → PG · 月度</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">etf_nav ETF净值</span><span class="t-tag">批量</span></div>
+            <div class="t-meta">Tushare → CK · 完成</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">lhb 龙虎榜</span><span class="t-tag">批量</span></div>
+            <div class="t-meta">东财 → PG · 每日盘后</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">adj_factor 复权</span><span class="t-tag">增量</span></div>
+            <div class="t-meta">Tushare → CK · 完成</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中央：任务详情 + 日志 -->
+      <main class="col-flex">
+        <div class="toolbar-row">
+          <span class="amber">rt_idx_k 实时指数K线</span>
+          <span class="status-pill running">运行中</span>
+          <div class="v-sep"></div>
+          <span class="dim">Tushare → ClickHouse</span>
+          <div class="spacer"></div>
+          <span class="dim">已同步</span><span class="amber num">2,480</span>
+          <span class="dim">速率</span><span class="num">12条/秒</span>
+          <span class="dim">延迟</span><span class="up num">0.8s</span>
+        </div>
+        <div style="padding:8px 12px;border-bottom:1px solid var(--glass-border)">
+          <div class="progress-row">
+            <span class="faint">同步进度</span>
+            <div class="progress-wrap" style="flex:1"><div class="progress-bar" style="width:78%"></div></div>
+            <span class="pct num">78%</span>
+          </div>
+          <div class="faint" style="font-size:9px;margin-top:4px">开始 09:15:00 · 持续运行 · 下次心跳 12s</div>
+        </div>
+        <div class="toolbar-row">
+          <div class="group" style="display:flex;gap:4px;align-items:center;height:100%">
+            <button class="tf-btn active">ALL</button>
+            <button class="tf-btn">INFO</button>
+            <button class="tf-btn">WARN</button>
+            <button class="tf-btn">ERROR</button>
+          </div>
+          <span class="indicator on">自动滚动</span>
+          <div class="spacer"></div>
+          <input class="num-input" style="width:140px" placeholder="过滤日志..." />
+          <button class="tf-btn">清空</button>
+        </div>
+        <div class="terminal-log">
+          <div class="log-line"><span class="ts">2026-09-13 14:32:08.124</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Task rt_idx_k started. schedule=realtime, batch_size=100</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:08.132</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Connected to Tushare API, token=***, timeout=30s</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:08.156</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Connected to ClickHouse cluster: ch-prod-01:9000</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:08.201</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Schema check OK: table=idx_kline, cols=12, rows_estimated=18,600,000</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:09.012</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Pulled batch #1: 100 rows (codes=000001.SH,399001.SZ,...), latency=0.42s</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:09.458</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Inserted batch #1 into ClickHouse, affected_rows=100, cost=0.038s</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:09.812</span> <span class="lvl-WARN">WARN</span>  <span class="msg">Rate limit hit: Tushare QPS=48/50, backing off 200ms</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:10.234</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Pulled batch #2: 100 rows, latency=0.51s</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:10.288</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Validation OK: no duplicates, no nulls, pct_chg within ±20%</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:11.002</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Heartbeat sent, uptime=1824s, synced=2480 rows</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:12.115</span> <span class="lvl-ERROR">ERROR</span> <span class="msg">Retry #1: insert batch failed (Code: 160, Connection reset by peer), retry in 10s</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:22.128</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Reconnected to ClickHouse, resuming batch #17</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:22.456</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Inserted batch #17: 100 rows, cost=0.045s</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:25.001</span> <span class="lvl-INFO">INFO</span>  <span class="msg">Rate: 12 rows/s, delay: 0.8s, backlog: 0</span></div>
+          <div class="log-line"><span class="ts">2026-09-13 14:32:28.912</span> <span class="lvl-DEBUG">DEBUG</span> <span class="msg">Snapshot checkpoint saved: cursor=2026-09-13 14:32:25, offset=2480</span></div>
+        </div>
+      </main>
+
+      <!-- 右：规则配置 -->
+      <aside class="col-280 glass">
+        <div class="panel-header">
+          <span class="title"><span class="num-prefix">[C1]</span>规则配置</span>
+        </div>
+        <div class="info-body">
+          <div class="kv-row"><span class="k">调度类型</span><span class="v amber">实时</span></div>
+          <div class="kv-row"><span class="k">执行频率</span><span class="v num">每 5 秒</span></div>
+          <div class="kv-row"><span class="k">超时时间</span><span class="v num">300 秒</span></div>
+          <div class="kv-row"><span class="k">重试次数</span><span class="v num">3</span></div>
+          <div class="kv-row"><span class="k">重试间隔</span><span class="v num">10 秒</span></div>
+          <div class="kv-row"><span class="k">冲突策略</span><span class="v">覆盖</span></div>
+        </div>
+        <div class="panel-header" style="border-top:1px solid var(--glass-border)">
+          <span class="title">数据映射</span>
+        </div>
+        <div class="info-body" style="font-size:10px">
+          <div class="kv-row"><span class="k">trade_date</span><span class="v">→ dt</span></div>
+          <div class="kv-row"><span class="k">ts_code</span><span class="v">→ code</span></div>
+          <div class="kv-row"><span class="k">close</span><span class="v">→ close</span></div>
+          <div class="kv-row"><span class="k">vol</span><span class="v">→ volume</span></div>
+          <div class="kv-row"><span class="k">amount</span><span class="v">→ turnover</span></div>
+        </div>
+        <div class="panel-header" style="border-top:1px solid var(--glass-border)">
+          <span class="title">过滤条件</span>
+        </div>
+        <div style="padding:6px 12px">
+          <input class="trade-input" style="font-size:10px;color:var(--amber);height:auto;padding:6px 8px" value="trade_date >= '2026-01-01' AND code LIKE '0%'"/>
+        </div>
+        <div class="action-row" style="flex-wrap:wrap">
+          <button class="action-btn primary" style="flex:1 1 45%">保存规则</button>
+          <button class="action-btn" style="flex:1 1 45%">立即执行</button>
+          <button class="action-btn danger" style="flex:1 1 100%">暂停任务</button>
+        </div>
+      </aside>
+    </div>
+  </div><!-- /tab-page 07 -->
+
+  <!-- ==================== TAB 08: 模型 ==================== -->
+  <div class="tab-page" data-tab="08">
+    <div class="page-workspace">
+
+      <!-- 左：模型列表 -->
+      <aside class="col-280 glass">
+        <div class="sub-tab-bar">
+          <span class="sub-tab active">全部</span>
+          <span class="sub-tab">选股</span>
+          <span class="sub-tab">择时</span>
+          <span class="sub-tab">风控</span>
+          <span class="sub-tab">因子</span>
+        </div>
+        <div class="mini-list" style="flex:1">
+          <div class="task-item active">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">多因子动量 v5.2</span><span class="t-tag">选股</span></div>
+            <div class="t-meta">已部署 · IC <span class="up num">0.084</span></div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot" style="background:#40c4ff;animation:blink 1s step-end infinite"></span><span class="t-name">多因子动量 v5.3</span><span class="t-tag">选股</span></div>
+            <div class="t-meta">训练中 · epoch 42/100</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">行业轮动 v3.1</span><span class="t-tag">择时</span></div>
+            <div class="t-meta">已部署 · IC <span class="up num">0.062</span></div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">风险预警 v2.4</span><span class="t-tag">风控</span></div>
+            <div class="t-meta">已部署 · AUC 0.87</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">北向跟随 v1.8</span><span class="t-tag">选股</span></div>
+            <div class="t-meta">已部署 · IC <span class="up num">0.058</span></div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot warn"></span><span class="t-name">量价因子 v4.0</span><span class="t-tag">因子</span></div>
+            <div class="t-meta">训练中 · epoch 12/80</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">MACD 增强 v2.2</span><span class="t-tag">因子</span></div>
+            <div class="t-meta">已部署 · IC <span class="up num">0.045</span></div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot err"></span><span class="t-name">深度学习 v1.0</span><span class="t-tag">选股</span></div>
+            <div class="t-meta">已归档 · IC 0.021</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">波动率择时 v3.0</span><span class="t-tag">择时</span></div>
+            <div class="t-meta">已部署 · 夏普 1.86</div>
+          </div>
+          <div class="task-item">
+            <div class="t-row"><span class="dot ok"></span><span class="t-name">估值因子 v2.5</span><span class="t-tag">因子</span></div>
+            <div class="t-meta">已部署 · IC <span class="up num">0.052</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中央模型详情 -->
+      <main class="col-flex">
+        <div class="toolbar-row">
+          <span class="amber" style="font-size:var(--md)">多因子动量 v5.2</span>
+          <span class="status-pill done">已部署</span>
+          <div class="v-sep"></div>
+          <span class="dim">框架</span><span class="v num">LightGBM</span>
+          <span class="dim">训练</span><span class="v">2018-2025</span>
+          <span class="dim">特征</span><span class="v amber num">128</span>
+          <span class="dim">样本</span><span class="v num">240万</span>
+          <div class="spacer"></div>
+          <span class="faint">最后训练 2026-09-10</span>
+        </div>
+
+        <div class="metric-grid cols-3" style="padding:10px 12px">
+          <div class="metric-card"><div class="m-label">IC</div><div class="m-value amber num">0.084</div><div class="m-sub">RankIC 0.092</div></div>
+          <div class="metric-card"><div class="m-label">ICIR</div><div class="m-value num">2.35</div><div class="m-sub">t-stat 4.82</div></div>
+          <div class="metric-card"><div class="m-label">年化收益</div><div class="m-value up num">32.4%</div><div class="m-sub">基准 +42.3%</div></div>
+          <div class="metric-card"><div class="m-label">最大回撤</div><div class="m-value down num">-12.5%</div><div class="m-sub">2025Q1</div></div>
+          <div class="metric-card"><div class="m-label">夏普比率</div><div class="m-value num">2.14</div><div class="m-sub">索提诺 3.02</div></div>
+          <div class="metric-card"><div class="m-label">胜率</div><div class="m-value num">58.3%</div><div class="m-sub">盈亏比 1.86</div></div>
+        </div>
+
+        <div class="panel-header" style="border-top:1px solid var(--glass-border)">
+          <span class="title">IC 时序（近 30 交易日）</span>
+          <span class="meta">MA5 叠加</span>
+        </div>
+        <div style="padding:6px 12px;flex:1;min-height:0">
+          <svg viewBox="0 0 700 130" preserveAspectRatio="none" style="width:100%;height:100%;min-height:120px">
+            <line x1="20" y1="65" x2="690" y2="65" stroke="rgba(255,255,255,0.15)"/>
+            <!-- 30 根 IC 柱，正负交替 -->
+            <g>
+              <rect x="30" y="55" width="12" height="10" fill="#00e6a0" opacity="0.85"/>
+              <rect x="50" y="48" width="12" height="17" fill="#00e6a0" opacity="0.85"/>
+              <rect x="70" y="68" width="12" height="8" fill="#ff5577" opacity="0.85"/>
+              <rect x="90" y="50" width="12" height="15" fill="#00e6a0" opacity="0.85"/>
+              <rect x="110" y="42" width="12" height="23" fill="#00e6a0" opacity="0.9"/>
+              <rect x="130" y="60" width="12" height="5" fill="#00e6a0" opacity="0.7"/>
+              <rect x="150" y="70" width="12" height="10" fill="#ff5577" opacity="0.85"/>
+              <rect x="170" y="45" width="12" height="20" fill="#00e6a0" opacity="0.9"/>
+              <rect x="190" y="38" width="12" height="27" fill="#00e6a0" opacity="0.95"/>
+              <rect x="210" y="55" width="12" height="10" fill="#00e6a0" opacity="0.8"/>
+              <rect x="230" y="72" width="12" height="7" fill="#ff5577" opacity="0.8"/>
+              <rect x="250" y="48" width="12" height="17" fill="#00e6a0" opacity="0.85"/>
+              <rect x="270" y="40" width="12" height="25" fill="#00e6a0" opacity="0.95"/>
+              <rect x="290" y="52" width="12" height="13" fill="#00e6a0" opacity="0.8"/>
+              <rect x="310" y="65" width="12" height="12" fill="#ff5577" opacity="0.9"/>
+              <rect x="330" y="45" width="12" height="20" fill="#00e6a0" opacity="0.9"/>
+              <rect x="350" y="35" width="12" height="30" fill="#00e6a0" opacity="0.95"/>
+              <rect x="370" y="50" width="12" height="15" fill="#00e6a0" opacity="0.85"/>
+              <rect x="390" y="60" width="12" height="5" fill="#00e6a0" opacity="0.7"/>
+              <rect x="410" y="68" width="12" height="8" fill="#ff5577" opacity="0.8"/>
+              <rect x="430" y="42" width="12" height="23" fill="#00e6a0" opacity="0.9"/>
+              <rect x="450" y="38" width="12" height="27" fill="#00e6a0" opacity="0.95"/>
+              <rect x="470" y="55" width="12" height="10" fill="#00e6a0" opacity="0.8"/>
+              <rect x="490" y="72" width="12" height="7" fill="#ff5577" opacity="0.8"/>
+              <rect x="510" y="45" width="12" height="20" fill="#00e6a0" opacity="0.9"/>
+              <rect x="530" y="35" width="12" height="30" fill="#00e6a0" opacity="0.95"/>
+              <rect x="550" y="48" width="12" height="17" fill="#00e6a0" opacity="0.85"/>
+              <rect x="570" y="58" width="12" height="7" fill="#00e6a0" opacity="0.75"/>
+              <rect x="590" y="42" width="12" height="23" fill="#00e6a0" opacity="0.9"/>
+              <rect x="610" y="38" width="12" height="27" fill="#00e6a0" opacity="0.95"/>
+            </g>
+            <!-- MA5 曲线 -->
+            <polyline points="36,58 56,55 76,55 96,53 116,52 136,55 156,58 176,52 196,48 216,50 236,55 256,52 276,48 296,50 316,55 336,50 356,45 376,48 396,52 416,55 436,50 456,45 476,48 496,55 516,50 536,45 556,48 576,50 596,48 616,45"
+              fill="none" stroke="#00d4ff" stroke-width="1.5"/>
+            <text x="20" y="15" class="axis-text">+0.15</text>
+            <text x="20" y="68" class="axis-text">0</text>
+            <text x="20" y="125" class="axis-text">-0.05</text>
+            <text x="690" y="125" text-anchor="end" class="axis-text">近30日</text>
+          </svg>
+        </div>
+
+        <div class="panel-header" style="border-top:1px solid var(--glass-border)">
+          <span class="title">特征重要性 Top 10</span>
+          <span class="meta">gain</span>
+        </div>
+        <div style="padding:8px 12px;flex:1;min-height:0">
+          <svg viewBox="0 0 500 180" style="width:100%;height:100%;min-height:160px">
+            <g font-size="10" font-family="monospace" fill="#888">
+              <text x="0" y="18">动量_20日</text><rect x="90" y="10" width="304" height="10" fill="url(#featBar)"/>
+              <text x="0" y="36">波动率_10日</text><rect x="90" y="28" width="256" height="10" fill="url(#featBar)"/>
+              <text x="0" y="54">换手率_5日</text><rect x="90" y="46" width="230" height="10" fill="url(#featBar)"/>
+              <text x="0" y="72">量比</text><rect x="90" y="64" width="196" height="10" fill="url(#featBar)"/>
+              <text x="0" y="90">RSI_14</text><rect x="90" y="82" width="174" height="10" fill="url(#featBar)"/>
+              <text x="0" y="108">MACD柱</text><rect x="90" y="100" width="152" height="10" fill="url(#featBar)"/>
+              <text x="0" y="126">布林位置</text><rect x="90" y="118" width="136" height="10" fill="url(#featBar)"/>
+              <text x="0" y="144">市盈率倒数</text><rect x="90" y="136" width="108" height="10" fill="url(#featBar)"/>
+              <text x="0" y="162">ROE</text><rect x="90" y="154" width="96" height="10" fill="url(#featBar)"/>
+              <text x="0" y="178">营收增长</text><rect x="90" y="172" width="84" height="10" fill="url(#featBar)" transform="translate(0,-6)"/>
+            </g>
+            <g font-size="9" fill="#00d4ff" font-family="monospace" font-weight="700">
+              <text x="400" y="18">0.152</text><text x="352" y="36">0.128</text><text x="326" y="54">0.115</text>
+              <text x="292" y="72">0.098</text><text x="270" y="90">0.087</text><text x="248" y="108">0.076</text>
+              <text x="232" y="126">0.068</text><text x="204" y="144">0.054</text><text x="192" y="162">0.048</text>
+              <text x="180" y="172">0.042</text>
+            </g>
+            <defs>
+              <linearGradient id="featBar" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#0891b2"/>
+                <stop offset="100%" stop-color="#00d4ff"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+      </main>
+
+      <!-- 右：训练/推理 -->
+      <aside class="col-280 glass">
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[T1]</span>训练状态</span><span class="status-pill running">训练中</span></div>
+          <div class="info-body">
+            <div class="kv-row"><span class="k">当前版本</span><span class="v amber">v5.3</span></div>
+            <div class="progress-row"><span class="k">Epoch</span><div class="progress-wrap" style="flex:1"><div class="progress-bar" style="width:42%"></div></div><span class="pct num">42/100</span></div>
+            <div class="kv-row"><span class="k">Loss</span><span class="v num">0.1284</span></div>
+            <div class="kv-row"><span class="k">Val Loss</span><span class="v num">0.1356</span></div>
+            <div class="kv-row"><span class="k">学习率</span><span class="v num">0.001</span></div>
+            <div class="kv-row highlight"><span class="k">预计剩余</span><span class="v amber">2h 15m</span></div>
+          </div>
+        </div>
+        <div class="info-section">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[T2]</span>训练历史</span></div>
+          <div class="table-scroll" style="max-height:160px">
+            <table class="data-table">
+              <thead><tr><th>版本</th><th class="num-col">IC</th><th class="num-col">ICIR</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr class="active"><td>v5.2</td><td class="num-col up num">0.084</td><td class="num-col num">2.35</td><td><span class="status-pill done">部署</span></td></tr>
+                <tr><td>v5.1</td><td class="num-col num">0.078</td><td class="num-col num">2.10</td><td><span class="status-pill part">归档</span></td></tr>
+                <tr><td>v5.0</td><td class="num-col num">0.072</td><td class="num-col num">1.95</td><td><span class="status-pill part">归档</span></td></tr>
+                <tr><td>v4.9</td><td class="num-col down num">0.065</td><td class="num-col num">1.72</td><td><span class="status-pill part">归档</span></td></tr>
+                <tr><td>v4.8</td><td class="num-col num">0.071</td><td class="num-col num">1.88</td><td><span class="status-pill part">归档</span></td></tr>
+                <tr><td>v4.7</td><td class="num-col down num">0.058</td><td class="num-col num">1.54</td><td><span class="status-pill cancel">回滚</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="info-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div class="panel-header"><span class="title"><span class="num-prefix">[T3]</span>推理日志</span></div>
+          <div class="terminal-log" style="border-top:none">
+            <div class="log-line"><span class="ts">14:32:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 12ms · 分布[买12/观11/卖5]</span></div>
+            <div class="log-line"><span class="ts">14:25:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 11ms · 分布[买14/观10/卖4]</span></div>
+            <div class="log-line"><span class="ts">14:20:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 13ms · 分布[买11/观12/卖5]</span></div>
+            <div class="log-line"><span class="ts">14:15:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 12ms · 分布[买13/观10/卖5]</span></div>
+            <div class="log-line"><span class="ts">14:10:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 11ms · 分布[买12/观11/卖5]</span></div>
+            <div class="log-line"><span class="ts">14:05:01</span> <span class="lvl-WARN">WRN</span> <span class="msg">推理队列延迟 0.3s，自动扩容</span></div>
+            <div class="log-line"><span class="ts">14:00:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 14ms · 分布[买15/观9/卖4]</span></div>
+            <div class="log-line"><span class="ts">13:55:01</span> <span class="lvl-INFO">INF</span> <span class="msg">v5.2 · 5,234样本 · 12ms · 分布[买12/观11/卖5]</span></div>
+          </div>
+        </div>
+        <div class="action-row" style="flex-wrap:wrap">
+          <button class="action-btn primary" style="flex:1 1 45%">开始训练</button>
+          <button class="action-btn" style="flex:1 1 45%">部署模型</button>
+          <button class="action-btn" style="flex:1 1 45%">导出模型</button>
+          <button class="action-btn" style="flex:1 1 45%">推理测试</button>
+        </div>
+      </aside>
+    </div>
+  </div><!-- /tab-page 08 -->
+
+  <!-- (tab 04-08 插入点) -->
+
+  <!-- 底部命令行 -->
+  <footer class="cmdline glass glass-strong">
+    <div class="prompt">
+      <span class="mode">NORMAL</span>
+      <span>admin@quant:~$</span>
+    </div>
+    <input type="text" placeholder="输入命令或股票代码...  例: 002531  / backtest  / sync start rt_idx_k" />
+    <div class="hints">
+      <span><kbd>Esc</kbd> 取消</span>
+      <span><kbd>:</kbd> 命令</span>
+      <span><kbd>/</kbd> 搜索</span>
+      <span><kbd>Tab</kbd> 补全</span>
+      <span><kbd>1-8</kbd> 切换面板</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+// ============ 顶部主 Tab 切换 ============
+var topTabs = document.querySelectorAll('.topbar .tab');
+var pages = document.querySelectorAll('.tab-page');
+topTabs.forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    var target = this.getAttribute('data-tab');
+    topTabs.forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    pages.forEach(function(p) {
+      p.classList.toggle('active', p.getAttribute('data-tab') === target);
+    });
+  });
+});
+
+// ============ 左侧列表项选中（symbol-item / task-item / tree-leaf / mini-item） ============
+function bindSingleSelect(selector) {
+  document.querySelectorAll(selector).forEach(function(item) {
+    item.addEventListener('click', function(e) {
+      // 如果点击的是内部 toggle / button 等，不影响选中
+      if (e.target.closest('.toggle, button, .side-btn, .qbtn, .tag-chip')) return;
+      // 同级容器内互斥
+      var scope = this.parentElement;
+      scope.querySelectorAll(selector).forEach(function(i) { i.classList.remove('active'); });
+      this.classList.add('active');
+    });
+  });
+}
+bindSingleSelect('.symbol-item');
+bindSingleSelect('.task-item');
+bindSingleSelect('.tree-leaf');
+
+// mini-item 不互斥，只高亮
+document.querySelectorAll('.mini-item').forEach(function(item) {
+  item.addEventListener('click', function() {
+    this.parentElement.querySelectorAll('.mini-item').forEach(function(i) { i.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// ============ tf-btn 组（同组互斥） ============
+document.querySelectorAll('.tf-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var group = this.parentElement;
+    // 仅在同一父级内互斥
+    group.querySelectorAll(':scope > .tf-btn').forEach(function(b) { b.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// ============ 子 Tab（sub-tab）：同容器互斥 ============
+document.querySelectorAll('.sub-tab-bar').forEach(function(bar) {
+  bar.querySelectorAll('.sub-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      bar.querySelectorAll('.sub-tab').forEach(function(t) { t.classList.remove('active'); });
+      this.classList.add('active');
+    });
+  });
+});
+
+// ============ 04 模拟盘子 Tab 内容切换 ============
+var subTabBtns = document.querySelectorAll('[data-sub]');
+subTabBtns.forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var key = this.getAttribute('data-sub');
+    var bar = this.parentElement;
+    bar.querySelectorAll('.sub-tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    // 找到所在 col-flex，切换 .sub-page
+    var container = this.closest('.col-flex');
+    container.querySelectorAll('.sub-page').forEach(function(p) {
+      p.style.display = (p.getAttribute('data-sub-page') === key) ? 'flex' : 'none';
+    });
+  });
+});
+
+// ============ 05 ETF 子页切换 ============
+document.querySelectorAll('[data-etf]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var key = this.getAttribute('data-etf');
+    var bar = this.parentElement;
+    bar.querySelectorAll('.sub-tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    var container = this.closest('.col-flex');
+    container.querySelectorAll('[data-etf-page]').forEach(function(p) {
+      p.style.display = (p.getAttribute('data-etf-page') === key) ? 'block' : 'none';
+    });
+  });
+});
+
+// ============ 指标开关（MA/VOL/MACD 等） ============
+document.querySelectorAll('.indicator').forEach(function(ind) {
+  ind.addEventListener('click', function() { this.classList.toggle('on'); });
+});
+
+// ============ 通用 toggle ============
+document.querySelectorAll('.toggle').forEach(function(t) {
+  t.addEventListener('click', function() { this.classList.toggle('on'); });
+});
+
+// ============ 标签多选（行业等） ============
+document.querySelectorAll('.tag-chip').forEach(function(chip) {
+  chip.addEventListener('click', function() { this.classList.toggle('active'); });
+});
+
+// ============ 买卖按钮 ============
+document.querySelectorAll('.side-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var parent = this.parentElement;
+    parent.querySelectorAll('.side-btn').forEach(function(b) { b.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// ============ 快捷仓位按钮 ============
+document.querySelectorAll('.pct-quick .qbtn').forEach(function(q) {
+  q.addEventListener('click', function() {
+    var parent = this.parentElement;
+    parent.querySelectorAll('.qbtn').forEach(function(b) { b.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+
+// ============ 数据表行选中（同表互斥） ============
+document.querySelectorAll('.data-table tbody').forEach(function(tbody) {
+  tbody.querySelectorAll('tr').forEach(function(row) {
+    row.addEventListener('click', function() {
+      tbody.querySelectorAll('tr').forEach(function(r) { r.classList.remove('active'); });
+      this.classList.add('active');
+    });
+  });
+});
+
+// ============ 树形目录展开/折叠 ============
+document.querySelectorAll('.tree-group-header').forEach(function(h) {
+  h.addEventListener('click', function() {
+    this.parentElement.classList.toggle('open');
+  });
+});
+
+// ============ 动作按钮点击反馈 ============
+document.querySelectorAll('.action-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    if (this.classList.contains('primary') || this.classList.contains('danger')) return;
+    this.classList.toggle('active');
+  });
+});
+
+// ============ 时钟 ============
+function tick() {
+  var now = new Date();
+  var el = document.getElementById('clock');
+  if (!el) return;
+  el.textContent =
+    String(now.getHours()).padStart(2,'0') + ':' +
+    String(now.getMinutes()).padStart(2,'0') + ':' +
+    String(now.getSeconds()).padStart(2,'0');
+}
+tick(); setInterval(tick, 1000);
+</script>
+
+</body>
+</html>

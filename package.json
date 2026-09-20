@@ -1,0 +1,21 @@
+{
+  "name": "dsh-quantification",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH-native quantitative research and decision platform",
+  "scripts": {
+    "build": "npm --prefix plugins/task-board-api-compat run build",
+    "dsh": "tsx --tsconfig ./deepseek-harness/tsconfig.json ./deepseek-harness/apps/cli/src/bin.ts",
+    "web": "node --env-file=.quant.env ./node_modules/tsx/dist/cli.mjs --tsconfig ./deepseek-harness/tsconfig.json ./deepseek-harness/apps/cli/src/bin.ts web --host 127.0.0.1 --port 3081 --no-open",
+    "quant-web": "npm --prefix apps/quant-web run dev"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

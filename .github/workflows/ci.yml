@@ -1,0 +1,67 @@
+name: CI
+
+# 说明：本仓库原先没有任何 CI，且本地未安装 pytest。
+# 这里刻意使用标准库 unittest（与 scripts/run_tests.ps1 完全一致、本地可复现），
+# 避免"CI 用的命令没人跑过"这类问题。
+# pyproject 里已配置 pytest（pythonpath=src、testpaths=tests），装好 dev extra 后
+# `python -m pytest -q` 等价可用。
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  contracts:
+    name: contract drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check contracts vs code (stdlib only, no install)
+        run: python scripts/check_contracts.py --strict
+
+  python:
+    name: ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [quant-engine, quant-sync, data-query-service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Unit tests
+        working-directory: services/${{ matrix.service }}
+        run: python -m unittest discover -s tests -t tests -p "test_*.py" -v
+
+  web:
+    name: quant-web typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/quant-web/package-lock.json
+      - name: Install
+        working-directory: apps/quant-web
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        working-directory: apps/quant-web
+        run: npx tsc -b
+      - name: Unit tests (node:test + tsx, 无额外依赖)
+        working-directory: apps/quant-web
+        run: npm test

@@ -1,0 +1,75 @@
+# 短线增强版配置：在31特征基础上增加突破/流动性/中长期趋势因子
+# 独立训练，不影响现有10种子模型
+label: forward_3
+featuresOverride:
+# 原有31特征
+- momentum20
+- momentum60
+- trend
+- drawdown60
+- volumeRatio
+- volSurge3
+- volSurge5
+- amountRatio5
+- volPriceCorr20
+- turnoverRatio5
+- amplitude20
+- peTtm
+- pb
+- psTtm
+- dvTtm
+- roe
+- grossMargin
+- netMargin
+- revenueYoy
+- netprofitYoy
+- ocfYoy
+- industry_mom20
+- industry_rank20
+- industry_excess5
+- industry_excess20
+- industry_amount_chg
+- turnover_surge
+- close_position_5d
+- mktCap
+- volatility20
+- floatRatio
+# 新增6个短线/突破因子
+- distHigh20       # 距20日高点距离（捕捉突破）
+- breakout60       # 60日突破信号
+- turnover20       # 20日换手率（流动性）
+- momentum120      # 120日动量（中长期趋势过滤）
+- roa              # 资产收益率（质量增强）
+- debtToAssets     # 资产负债率（风险过滤）
+model:
+  nEstimators: 300
+  learningRate: 0.03
+  numLeaves: 31
+  minDataInLeaf: 20
+  subsample: 0.8
+  colsampleBytree: 0.8
+  randomState: 42
+  # 先单种子快速验证，效果好再加多种子
+  randomStates: [42]
+  ensembleMethod: median_zscore
+  earlyStopping: 30
+  validationDays: 40
+  testDays: 40
+  labelGrades: 10
+walkforward:
+  minTrain: 200
+  stepDays: 40
+  testDays: 40
+  # 跑全部24窗口，和现有模型同口径对比
+  maxWindows: 24
+  embargoDays: 3
+backtest:
+  executionMode: same_day_close
+  snapshotTime: "14:40"
+  snapshotSource: close_proxy
+  topN: 5
+  rebalanceDays: 3
+  commissionRate: 0.00008
+  stampDutyRate: 0.0005
+  slippageRate: 0.004
+  minMktCap: 200000

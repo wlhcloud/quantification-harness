@@ -1,0 +1,6 @@
+id: minute-v1
+version: 1
+frequency: daily
+source: market.minute_bars.5m
+status: draft
+features: []

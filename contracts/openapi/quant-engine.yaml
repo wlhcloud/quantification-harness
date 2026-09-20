@@ -1,0 +1,213 @@
+openapi: 3.1.0
+info:
+  title: DSH Quant Engine
+  version: 0.1.0
+paths:
+  /api/v1/health:
+    get:
+      operationId: quantEngineHealth
+      responses:
+        '200':
+          description: Service health
+  /api/v1/jobs:
+    get:
+      operationId: listQuantJobs
+      responses:
+        '200':
+          description: Recent jobs
+    post:
+      operationId: createQuantJob
+      responses:
+        '202':
+          description: Job accepted
+        '409':
+          description: Backtest data admission rejected; response includes gate checks
+        '422':
+          description: Forced backtest is missing a sufficient risk reason
+        '401':
+          description: Missing or invalid API key when authentication is enabled
+  /api/v1/backtest/readiness:
+    get:
+      operationId: getBacktestReadiness
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, enum: [monthly, short], default: monthly }
+        - name: start_date
+          in: query
+          required: false
+          schema: { type: string, pattern: '^\\d{8}$' }
+        - name: end_date
+          in: query
+          required: false
+          schema: { type: string, pattern: '^\\d{8}$' }
+      responses:
+        '200':
+          description: Authoritative data-admission decision and check details
+  /api/v1/jobs/{job_id}:
+    parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getQuantJob
+      responses:
+        '200': { description: Job state }
+        '404': { description: Job not found }
+  /api/v1/jobs/{job_id}/cancel:
+    parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: cancelQuantJob
+      responses:
+        '200': { description: Cancellation requested }
+        '404': { description: Job not found }
+  /api/v1/etf-quant/backtest/latest:
+    get:
+      operationId: getEtfQuantBacktestLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf-quant/research/latest:
+    get:
+      operationId: getEtfQuantResearchLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf-quant/sim/advance:
+    post:
+      operationId: postEtfQuantSimAdvance
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/etf-quant/sim/history:
+    get:
+      operationId: getEtfQuantSimHistory
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf-quant/sim/start:
+    post:
+      operationId: postEtfQuantSimStart
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/etf-quant/sim/status:
+    get:
+      operationId: getEtfQuantSimStatus
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf-quant/train/latest:
+    get:
+      operationId: getEtfQuantTrainLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/etf-quant/walkforward/latest:
+    get:
+      operationId: getEtfQuantWalkforwardLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/backtest:
+    post:
+      operationId: postStockMlBacktest
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock-ml/candidates:
+    get:
+      operationId: getStockMlCandidates
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/data-freshness:
+    get:
+      operationId: getStockMlDataFreshness
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/config:
+    get:
+      operationId: getStockMlConfig
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/feature-importance:
+    get:
+      operationId: getStockMlFeatureImportance
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/label-audit:
+    get:
+      operationId: getStockMlLabelAudit
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/predict:
+    post:
+      operationId: postStockMlPredict
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock-ml/walkforward/delete:
+    delete:
+      operationId: deleteStockMlWalkforwardDelete
+      responses:
+        '200': { description: Delete configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock-ml/walkforward/latest:
+    get:
+      operationId: getStockMlWalkforwardLatest
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/walkforward/list:
+    get:
+      operationId: getStockMlWalkforwardList
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock-ml/walkforward/notes:
+    put:
+      operationId: putStockMlWalkforwardNotes
+      responses:
+        '200': { description: Update configuration (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock-ml/walkforward/publish:
+    post:
+      operationId: postStockMlWalkforwardPublish
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock/regime-analysis:
+    get:
+      operationId: getStockRegimeAnalysis
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock/sim/advance:
+    post:
+      operationId: postStockSimAdvance
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock/sim/history:
+    get:
+      operationId: getStockSimHistory
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock/sim/runs:
+    get:
+      operationId: getStockSimRuns
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock/sim/start:
+    post:
+      operationId: postStockSimStart
+      responses:
+        '200': { description: Trigger/command endpoint (requires X-API-Key when authentication is enabled) }
+        '401': { description: Missing or invalid API key when authentication is enabled }
+  /api/v1/stock/sim/status:
+    get:
+      operationId: getStockSimStatus
+      responses:
+        '200': { description: Read-only endpoint }
+  /api/v1/stock/technical-timing/backtest/latest:
+    get:
+      operationId: getStockTechnicalTimingBacktestLatest
+      responses:
+        '200': { description: Read-only endpoint }

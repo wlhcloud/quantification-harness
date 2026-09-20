@@ -1,0 +1,17 @@
+id: t1-default
+version: 1
+status: draft
+entry: next_open
+exit: next_close
+commissionRate: 0.00008
+stampDutyRate: 0.0005
+slippageRate: 0.001
+annualRiskFreeRate: 0.015
+priceAdjustment: adjustment_factors
+pointInTimePolicy: warn_until_backfill_complete
+benchmark: eligible_equal_weight
+execution:
+  lotSize: 100
+  rejectSuspended: true
+  rejectLimitLocked: true
+  maxParticipationRate: 0.05

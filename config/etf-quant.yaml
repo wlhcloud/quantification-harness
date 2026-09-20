@@ -1,0 +1,58 @@
+# ETF Quant MVP 配置（纯新增，不影响股票链路）
+# walkforward.embargoDays：训练/验证集末尾剔除若干交易日，避免 forward_N 标签伸进下一段。
+#   默认 0 = 与历史基线同口径（数值不变）；forward_20 建议设 20。
+{
+  "walkforward": {
+    "embargoDays": 0
+  },
+  "pool": {
+    "minHistoryDays": 60,
+    "maxEligible": 200,
+    "minAvgAmount20": 2000000,
+    "excludeNamePatterns": ["货币", "现金", "国债逆回购"]
+  },
+  "benchmark": "000300.SH",
+  "factors": {
+    "mom20":   { "label": "20日动量", "direction": 1 },
+    "mom60":   { "label": "60日动量", "direction": 1 },
+    "mom120":  { "label": "120日动量", "direction": 1 },
+    "rs20":    { "label": "20日相对强度", "direction": 1 },
+    "rs60":    { "label": "60日相对强度", "direction": 1 },
+    "trend_quality": { "label": "趋势质量(价/MA60)", "direction": 1 },
+    "ma_alignment":  { "label": "均线多头排列", "direction": 1 },
+    "vol_ratio":     { "label": "量比", "direction": 1 },
+    "amount_trend":  { "label": "成交额趋势", "direction": 1 },
+    "volatility20":  { "label": "20日波动率", "direction": -1 },
+    "drawdown60":    { "label": "60日回撤深度", "direction": -1 },
+    "log_amount20":  { "label": "流动性(对数成交额)", "direction": 1 }
+  },
+  "labels": ["forward_5", "forward_20"],
+  "research": {
+    "label": "forward_20",
+    "minDays": 40
+  },
+  "model": {
+    "type": "lgbm_ranker",
+    "nEstimators": 300,
+    "learningRate": 0.03,
+    "numLeaves": 31,
+    "minDataInLeaf": 20,
+    "subsample": 0.8,
+    "colsampleBytree": 0.8,
+    "earlyStopping": 30,
+    "randomState": 42,
+    "validationDays": 40,
+    "testDays": 40,
+    "labelRelative": true,
+    "featuresOverride": ["mom20", "mom60", "mom120", "ma_alignment", "vol_ratio", "amount_trend", "mom_accel", "skew20", "drawdown20", "amount_share", "ind_rs"]
+  },
+  "backtest": {
+    "topN": 5,
+  "weightMode": "score_lin",
+    "rebalanceDays": 20,
+    "costBps": 3,
+    "minPosition": 0.05,
+    "scoreMode": "model",
+    "regimeFilter": { "enabled": true, "maWindow": 20, "bearWeight": 0.0 }
+  }
+}
