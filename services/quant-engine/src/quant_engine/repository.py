@@ -44,8 +44,24 @@ class JobRepository:
 
     @staticmethod
     def decode(row: sqlite3.Row) -> JobRecord:
+        """把库里的一行还原成 JobRecord。
+
+        对**已退役**的 type/status 必须降级而不是抛错：`factor_mining` 随 legacy
+        因子选股退役后，库里 15 条历史记录曾让 `GET /jobs?limit>=46` 直接 500
+        （Starlette 的 500 是纯文本，前端 `response.json()` 还会再炸一次）。
+        一条历史记录不该打挂整个列表接口，因此保留原始字符串原样返回。
+        新提交的 job 仍受 `JobCreate.type: JobType` 严格校验，契约不受影响。
+        """
+        try:
+            job_type: str = JobType(row["type"]).value
+        except ValueError:
+            job_type = str(row["type"])
+        try:
+            status: str = JobStatus(row["status"]).value
+        except ValueError:
+            status = str(row["status"])
         return JobRecord(
-            id=row["id"], type=JobType(row["type"]), status=JobStatus(row["status"]),
+            id=row["id"], type=job_type, status=status,
             progress=row["progress"], parameters=json.loads(row["parameters_json"]),
             result=json.loads(row["result_json"]) if row["result_json"] else None,
             error=row["error"], cancel_requested=bool(row["cancel_requested"]),
@@ -56,8 +72,10 @@ class JobRepository:
 
     def insert(self, job: JobRecord) -> None:
         with self.connect() as db:
+            # JobType/JobStatus 都是 StrEnum（本身就是 str），JobRecord 也会把枚举
+            # 归一成字符串；这里统一用 str() 取值，兼容两种入参形态。
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?,?,?)", (
-                job.id, job.type.value, job.status.value, job.progress,
+                job.id, str(job.type), str(job.status), job.progress,
                 json.dumps(job.parameters, ensure_ascii=False), None, None, 0,
                 job.created_at.isoformat(), None, None,
             ))
