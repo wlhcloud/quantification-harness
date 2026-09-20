@@ -1,0 +1,27 @@
+# 行尾策略：把"cmd 安全"的行尾要求钉在仓库里，不再依赖开发机的 core.autocrlf。
+#
+# 背景（真实踩坑，2026-09-13，看门狗当场抓到）：
+#   data/start-910N.bat 用 cmd 的
+#       for /f "usebackq eol=# tokens=1,*
+#   解析密钥文件。如果 .quant.env 是 LF 行尾、且含多字节注释，cmd 会把注释行的
+#   下一行并进注释 —— 该行的变量被【静默漏读】：服务照常启动，但写接口鉴权失效
+#   （health: authEnabled=false）。所以 .bat 与 .quant.env 必须是 ASCII + CRLF。
+#
+# 为什么必须显式声明：仓库里的文本 blob 统一存 LF（这是对的，便于跨平台）。
+# 此前这个不变量【只靠 Windows 开发机的系统级 core.autocrlf=true 兜着】：
+# Linux 上 autocrlf 默认 false，checkout 出来就是 LF，于是
+# StartupScriptSafetyTest 在 Linux 上必红 —— GitHub Actions 的 ubuntu-latest
+# 与部署服务器都是如此。属性必须进仓库，机器配置不能算数。
+
+# cmd 解析的启动脚本与它读取的密钥文件：checkout 为 CRLF。
+# （text 让 git 规范化入库，库内仍是 LF；eol=crlf 只作用于检出。
+#   本机 autocrlf 无论怎么设，都不再影响结果。）
+data/start-910*.bat text eol=crlf
+
+# .quant.env 不入库（含真实密钥，见 .gitignore），这里为将来可能入库的
+# 同名/示例文件预先钉住，避免再次踩坑。
+.quant.env   text eol=crlf
+.env.example text eol=crlf
+
+# cmd 解析的批处理脚本，同理。
+scripts/*.bat text eol=crlf
