@@ -27,7 +27,7 @@ import {
 } from "@ant-design/icons";
 import { PageContainer, ProCard, ProTable, type ProColumns } from "@ant-design/pro-components";
 import dayjs, { type Dayjs } from "dayjs";
-import { coreSyncApi, dataApi, syncApi, type GenericSyncStatusDto, type MinuteSyncDetailsDto, type MinuteSyncItemDto, type MinuteSyncStatusDto, type SecurityDto, type SyncConfigDto, type SyncLogDto, type SyncRunDto, type SyncToolDto, type SyncToolParams } from "./api";
+import { coreSyncApi, dataApi, syncApi, type CoverageDto, type GenericSyncStatusDto, type MinuteSyncDetailsDto, type MinuteSyncItemDto, type MinuteSyncStatusDto, type SecurityDto, type SyncConfigDto, type SyncLogDto, type SyncRunDto, type SyncToolDto, type SyncToolParams } from "./api";
 import { fmtDateTime, fmtParamsText } from "./format";
 import EngineJobsCard from "./engine/EngineJobsCard";
 import EtfSyncCard from "./sync/EtfSyncCard";
@@ -71,6 +71,11 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
   const minuteEnabled = health.sync.minuteSyncEnabled !== false;
   const [status, setStatus] = useState<MinuteSyncStatusDto>(EMPTY);
   const [marketHistory, setMarketHistory] = useState<GenericSyncStatusDto>(EMPTY_HISTORY);
+  const [coverage, setCoverage] = useState<CoverageDto | null>(null);
+  // 实时指数工具（rt_idx_k / rt_idx_min）每分钟调度一次，失败时每次产生一条 error，
+  // 能把最近 100 条记录里 86% 的位置占满，把真正影响数据的日线/财务同步挤出去。
+  // 默认把它们折叠掉，需要排查上游时再切"全部"。
+  const [recordsFilter, setRecordsFilter] = useState<"data" | "all">("data");
   const [details, setDetails] = useState<MinuteSyncDetailsDto>({ run: null, counts: {}, items: [], dayLedger: { completed: 0, zeroRows: 0 } });
   const [serviceOk, setServiceOk] = useState(false);
   const [tools, setTools] = useState<SyncToolDto[]>([]);
@@ -89,6 +94,8 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const historyRequest = coreSyncApi.marketStatus().then(setMarketHistory).catch(() => undefined);
+    // 覆盖度与历史状态并行拉取；失败不阻断其余面板（它是新增的只读视图）。
+    const coverageRequest = coreSyncApi.coverage(10).then(setCoverage).catch(() => setCoverage(null));
     try {
       const [health, nextStatus, toolsRes, runs] = await Promise.all([syncApi.health(), syncApi.status(), syncApi.tools(), syncApi.records()]);
       setServiceOk(health.status === "ok"); setStatus(nextStatus); setTools(toolsRes.items); setRecords(runs.items);
@@ -97,7 +104,7 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
     } catch (error) {
       setServiceOk(false);
       if (!silent) message.error(error instanceof Error ? error.message : String(error));
-    } finally { await historyRequest; if (!silent) setLoading(false); }
+    } finally { await Promise.all([historyRequest, coverageRequest]); if (!silent) setLoading(false); }
   }, [message]);
 
   const loadMinuteDetails = useCallback(async (runId?: string) => {
@@ -290,11 +297,21 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
   };
 
   const runningCount = tools.filter(t => t.status === "running" || t.status === "starting").length + (["running", "starting"].includes(marketHistory.status) ? 1 : 0);
-  const errorCount = tools.filter(t => t.status === "error").length + (["error", "complete_with_gaps"].includes(marketHistory.status) ? 1 : 0);
+  // 把"实时指数噪音"和"数据同步异常"分开计数：两者的处置方式完全不同
+  // （前者是既有上游 502/503 抖动，后者才需要人去补数据）。
+  const isRealtimeKind = (kind: string) => kind.startsWith("rt_idx");
+  const realtimeErrors = records.filter(r => isRealtimeKind(r.kind) && r.status === "error").length;
+  const dataRecords = records.filter(r => !isRealtimeKind(r.kind));
+  const dataErrors = dataRecords.filter(r => r.status === "error" || r.status === "complete_with_gaps").length;
+  const recordsShown = recordsFilter === "data" ? dataRecords : records;
   const historyTotal = marketHistory.totalDays ?? 0;
   const historyDone = marketHistory.completedDays ?? 0;
   const historyFailed = marketHistory.failedDays ?? 0;
   const historyPercent = qualityPercent(historyDone, historyTotal);
+  // 历史回填的 startedAt/finishedAt 可能只差几毫秒（那次没有 pending 日、实际没干活），
+  // 把它显式标出来，避免"1236/1236 完成"被误读成"刚回填过且完全没问题"。
+  const historyWasNoop = !!marketHistory.startedAt && !!marketHistory.finishedAt
+    && Math.abs(new Date(marketHistory.finishedAt).getTime() - new Date(marketHistory.startedAt).getTime()) < 5000;
   const columns: ProColumns<SyncToolDto>[] = [
     { title: "上游工具", dataIndex: "label", render: (_, row) => <div className="tool-name"><b>{row.label}</b><span>{row.table}（{row.toolId}）</span></div> },
     { title: "类型", dataIndex: "kind", width: 80, render: (_, row) => { const km = kindMeta[row.kind]; return <Tag color={km.color}>{km.text}</Tag>; } },
@@ -317,9 +334,19 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
       <div><DatabaseOutlined /><span><b>同步执行器</b><small>本地数据编排与质量校验</small><Badge status={serviceOk ? "success" : "error"} text={serviceOk ? "服务在线" : "服务离线"} /></span></div>
       <Statistic title="上游工具" value={tools.length} />
       <Statistic title="运行中" value={runningCount} />
-      <Statistic title="异常" value={errorCount} />
+      <Statistic title="数据同步异常" value={dataErrors} valueStyle={dataErrors ? { color: "#cf1322" } : undefined} />
+      <Statistic title="实时指数失败" value={realtimeErrors} valueStyle={{ color: "#8c8c8c" }} />
       <Statistic title="同步记录" value={records.length} />
     </div>
+    {realtimeErrors > 0 ? (
+      <Alert
+        type="warning"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message={`实时指数同步失败 ${realtimeErrors} 次（rt_idx_k / rt_idx_min）`}
+        description="这是既有上游问题：promax 数据源在交易时段会间歇性返回 5xx，与本地部署无关。它不影响日线/财务数据，已从下方记录的默认视图折叠；需要排查上游时切换右侧的“全部”。"
+      />
+    ) : null}
 
     {!minuteEnabled && (
       <Alert
@@ -332,8 +359,55 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
     )}
 
     <ProCard
+      className="sync-coverage-card"
+      title="数据覆盖度（逐交易日）"
+      subTitle="日线 / 估值 / 可交易状态 / 复权因子四项，最近 10 个交易日；复权因子是标签计算依据"
+      extra={<Badge
+        status={coverage ? (coverage.adjustmentGaps.length ? "error" : coverage.latestComplete ? "success" : "warning") : "default"}
+        text={coverage ? (coverage.adjustmentGaps.length ? `复权因子缺 ${coverage.adjustmentGaps.length} 天` : coverage.latestComplete ? "最近交易日完整" : "最近交易日不完整") : "无数据"}
+      />}
+    >
+      {coverage?.adjustmentGaps.length ? (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`复权因子缺口：${coverage.adjustmentGaps.join("、")}`}
+          description="复权因子缺失会让 forward_* 标签算错（标签用 close×adj_factor 复权）。注意：区间补拉（daily.history / “补拉缺口”）只写日线、不写复权因子；复权因子要靠「上游数据工具」里的“日线行情(daily)”单日同步或 /sync/daily 逐日补。逐日重试通常能成功——上游 adj_factor 会间歇性返回不全。"
+        />
+      ) : null}
+      <ProTable
+        rowKey="tradeDate"
+        search={false} options={false} pagination={false} size="small"
+        dataSource={[...(coverage?.items ?? [])].reverse()}
+        columns={[
+          { title: "交易日", dataIndex: "tradeDate", width: 110 },
+          { title: "日线", dataIndex: "bars", width: 80, render: (v, row) => <span className={row.missing.includes("bars") ? "coverage-bad" : undefined}>{v}</span> },
+          { title: "估值", dataIndex: "basic", width: 80, render: (v, row) => <span className={row.missing.includes("basic") ? "coverage-bad" : undefined}>{v}</span> },
+          { title: "可交易状态", dataIndex: "status", width: 100, render: (v, row) => <span className={row.missing.includes("status") ? "coverage-bad" : undefined}>{v}</span> },
+          { title: "复权因子", dataIndex: "adjustments", width: 100, render: (v, row) => <span className={row.missing.includes("adjustments") ? "coverage-bad" : undefined}><b>{v}</b></span> },
+          { title: "判定", width: 120, render: (_, row) => row.complete
+              ? <Tag color="success">完整</Tag>
+              : <Tooltip title={`缺: ${row.missing.join("、")}`}><Tag color="error">缺 {row.missing.join("/")}</Tag></Tooltip> },
+        ]}
+      />
+      <Space size={28} wrap style={{ marginTop: 12 }}>
+        <Statistic title="日线最新" value={coverage?.market.dailyBars.latest ?? "—"} />
+        <Statistic title="复权因子最新" value={coverage?.market.adjustmentFactors.latest ?? "—"}
+          valueStyle={coverage?.adjustmentGaps.length ? { color: "#cf1322" } : undefined} />
+        <Statistic title="估值最新" value={coverage?.market.dailyBasic.latest ?? "—"} />
+        {coverage?.finance.map((f) => (
+          <Statistic key={f.table} title={f.table} value={f.latest ?? (f.error ? "读取失败" : "—")} />
+        ))}
+      </Space>
+    </ProCard>
+
+    <ProCard
       className="sync-run-card"
       title="历史研究数据回填"
+      subTitle={historyWasNoop
+        ? "⚠️ 上次运行没有实际处理任何交易日（起止时间仅相差数毫秒），此处的“全部通过”不代表当前数据无缺口——请看上方「数据覆盖度」"
+        : "单日逐天回填（含复权因子）；若上方覆盖度显示复权缺口，用这里的“补拉缺口”或逐日重试"}
       extra={<Space><Badge status={(statusMeta[marketHistory.status] ?? statusMeta.idle).status} text={(statusMeta[marketHistory.status] ?? statusMeta.idle).text} /><Button size="small" icon={<RetweetOutlined />} loading={submitting} disabled={["running", "starting"].includes(marketHistory.status)} onClick={confirmHistoryRetry}>补拉缺口</Button></Space>}
     >
       <div className="sync-run-summary">
@@ -358,17 +432,41 @@ export default function SyncCenter({ repairPreset }: { repairPreset?: SyncRepair
     <ProTable<SyncToolDto> className="sync-task-catalog" rowKey="toolId" search={false} options={false} pagination={false}
       dataSource={tools} loading={loading} columns={columns} headerTitle="上游数据工具（一个工具 = 一个独立同步入口）" />
 
-    <ProTable<SyncRunDto> className="sync-records" rowKey="id" search={false} options={false} dataSource={records} scroll={{ x: 1450 }}
-      headerTitle={"同步记录（" + records.length + "）"} pagination={{ pageSize: 10, showSizeChanger: true }}
+    <ProTable<SyncRunDto> className="sync-records" rowKey="id" search={false} options={false} dataSource={recordsShown} scroll={{ x: 1450 }}
+      headerTitle={
+        <Space>
+          <span>同步记录（{recordsShown.length}{recordsFilter === "data" ? ` / 共 ${records.length}` : ""}）</span>
+          <Select
+            size="small" value={recordsFilter} style={{ width: 190 }}
+            onChange={(v) => setRecordsFilter(v)}
+            options={[
+              { value: "data", label: `数据同步（${dataRecords.length}）` },
+              { value: "all", label: `全部（${records.length}）` },
+            ]}
+          />
+        </Space>
+      }
+      pagination={{ pageSize: 10, showSizeChanger: true }}
       columns={[
-        { title: "任务 / Run ID", dataIndex: "kind", width: 190, render: (_, row) => <div className="tool-name"><Tag color={String(row.kind).startsWith("minute") ? "blue" : "default"}>{row.kind}</Tag><Typography.Text copyable={{ text: row.id }} type="secondary">{row.id.slice(-12)}</Typography.Text></div> },
+        { title: "任务 / Run ID", dataIndex: "kind", width: 190, render: (_, row) => <div className="tool-name"><Tag color={isRealtimeKind(String(row.kind)) ? "default" : "blue"}>{row.kind}</Tag><Typography.Text copyable={{ text: row.id }} type="secondary">{row.id.slice(-12)}</Typography.Text></div> },
         { title: "同步参数", dataIndex: "parameters", width: 260, ellipsis: true, render: (_, row) => <Typography.Text code>{fmtParams(row.parameters)}</Typography.Text> },
         { title: "状态", dataIndex: "status", width: 100, render: (value) => { const cur = statusMeta[String(value)] ?? statusMeta.idle; return <Badge status={cur.status} text={cur.text} />; } },
-        { title: "质量通过率", width: 150, render: (_, row) => (row.total ? <Progress percent={qualityPercent(row.completed, row.total)} size="small" status={row.failed ? "exception" : undefined} /> : "—") },
+        {
+          // 原列名"质量通过率"会把两种不同的东西摆在一起比：按天/按批次的运行
+          // （total 恒为 1，只可能 0% 或 100%）与按记录条数的运行。这里统一叫"完成度"，
+          // 批次型运行直接显示质量标签而不是伪百分比。
+          title: "完成度", width: 150,
+          render: (_, row) => (row.total ? (
+            row.total === 1
+              ? <Tag color={row.completed ? "success" : row.failed ? "error" : "warning"}>
+                  {row.completed ? "整批通过" : row.failed ? "存在缺口" : "未知"}
+                </Tag>
+              : <Progress percent={qualityPercent(row.completed, row.total)} size="small" status={row.failed ? "exception" : undefined} />
+          ) : "—"),
+        },
         { title: "通过 / 失败 / 跳过", width: 145, render: (_, row) => `${row.completed} / ${row.failed} / ${row.skipped}` },
         { title: "接收 / 写入", width: 125, render: (_, row) => `${(row.received ?? 0).toLocaleString()} / ${(row.written ?? 0).toLocaleString()}` },
         { title: "来源", dataIndex: "source", width: 120, ellipsis: true, render: (_, row) => row.source ? <Tag color="geekblue">{row.source}</Tag> : "—" },
-        { title: "质量", dataIndex: "qualityStatus", width: 105, render: (_, row) => row.qualityStatus ? <Tag color={row.qualityStatus === "passed" ? "success" : row.qualityStatus === "cached" ? "blue" : "warning"}>{row.qualityStatus}</Tag> : "—" },
         { title: "开始时间", dataIndex: "startedAt", width: 170, render: (value) => formatTime(String(value)) },
         { title: "结束时间", dataIndex: "finishedAt", width: 170, render: (value) => formatTime(value ? String(value) : null) },
         { title: "错误", dataIndex: "error", ellipsis: true, render: (_, row) => { const text = toText(row.error); return text ? <Tooltip title={text}><Typography.Text type="danger">{text}</Typography.Text></Tooltip> : "—"; } },

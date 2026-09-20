@@ -217,8 +217,14 @@ export const etfSyncApi={
   }),{method:'POST'}),
   indexHistoryStatus:()=>syncRequest<EtfBarStateDto>('/sync/etf/index-history/status'),
 }
+export type CoverageDayDto={tradeDate:string;bars:number;basic:number;status:number;adjustments:number;missing:string[];adjustmentMissing:boolean;complete:boolean};
+export type TableFreshnessDto={table:string;rows:number|null;latest:string|null;error:string|null};
+export type CoverageDto={days:number;items:CoverageDayDto[];latest:CoverageDayDto|null;latestComplete:boolean|null;adjustmentGaps:string[];incomplete:string[];finance:TableFreshnessDto[];market:{dailyBars:TableFreshnessDto;adjustmentFactors:TableFreshnessDto;dailyBasic:TableFreshnessDto}};
 export const coreSyncApi={
   marketStatus:()=>syncRequest<GenericSyncStatusDto>('/sync/daily/history/status'),
+  /** 逐日覆盖度：日线/估值/可交易状态/复权因子四项 + 财务库新鲜度。
+   *  复权因子缺口此前在界面上完全不可见（区间补拉不写它），这个端点专门暴露它。 */
+  coverage:(days=10)=>syncRequest<CoverageDto>('/sync/daily/coverage?days='+days),
   financeStatus:()=>syncRequest<GenericSyncStatusDto>('/sync/finance/market/status'),
   startMarketHistory:(startDate:string,endDate:string,days:number)=>syncRequest<GenericSyncStatusDto>('/sync/daily/history?'+new URLSearchParams({start_date:startDate,end_date:endDate,days:String(days)}),{method:'POST'}),
   startFinance:(quarters:number)=>syncRequest<GenericSyncStatusDto>('/sync/finance/market?quarters='+quarters,{method:'POST'}),

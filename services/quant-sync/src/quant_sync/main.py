@@ -582,6 +582,46 @@ def records(limit: int = 100):
     return {"count": len(items), "items": items}
 
 
+# ---- 数据覆盖度（"数据到底能不能用"的权威视图）----
+def _table_latest(path, table: str, column: str) -> dict:
+    """读某表的行数与最新日期；读不到就如实返回 error，不要静默成 0。"""
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=15)
+        try:
+            rows = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            latest = con.execute(f"SELECT MAX({column}) FROM {table}").fetchone()[0]
+        finally:
+            con.close()
+        return {"table": table, "rows": rows, "latest": latest, "error": None}
+    except Exception as error:  # noqa: BLE001
+        return {"table": table, "rows": None, "latest": None, "error": str(error)}
+
+
+@app.get("/api/v1/sync/daily/coverage")
+def daily_coverage(days: int = 10):
+    """最近若干交易日的四项覆盖度 + 财务库新鲜度。
+
+    为什么单列这个端点：此前"数据是否可用"只能靠人肉查库。区间补拉（daily.history）
+    只写日线、不写复权因子，而 research_sync_quality 只有单日同步路径会写，
+    于是 9/16-9/18 复权因子为 0 时，整个界面上看不出任何异常——用这份覆盖度
+    直接把"复权因子缺口"暴露出来（adjustmentGaps）。
+    """
+    payload = daily.coverage(days)
+    payload["finance"] = [
+        _table_latest(settings.finance_path, "financial_indicator", "end_date"),
+        _table_latest(settings.finance_path, "income_statement", "end_date"),
+        _table_latest(settings.finance_path, "balance_sheet", "end_date"),
+        _table_latest(settings.finance_path, "cashflow_statement", "end_date"),
+    ]
+    payload["market"] = {
+        "dailyBars": _table_latest(settings.market_path, "daily_bars", "trade_date"),
+        "adjustmentFactors": _table_latest(settings.market_path, "adjustment_factors", "trade_date"),
+        "dailyBasic": _table_latest(settings.market_path, "daily_basic", "trade_date"),
+    }
+    return payload
+
+
 @app.get("/api/v1/records/{run_id}/logs")
 def record_logs(run_id: str, limit: int = 500):
     capped = max(1, min(2000, limit))

@@ -106,6 +106,69 @@ class DailySync:
     def _count(self, table: str) -> int:
         return self.db.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
 
+    @staticmethod
+    def _coverage_rows(rows) -> list[dict]:
+        """把 (trade_date, bars, basic, status, adj) 元组转成带判定的覆盖度条目。"""
+        out: list[dict] = []
+        for trade_date, bars, basic, status, adj in rows:
+            bars = int(bars or 0)
+            counts = {"bars": bars, "basic": int(basic or 0),
+                      "status": int(status or 0), "adjustments": int(adj or 0)}
+            # 零行必须显式判缺：不能只靠"< bars*0.95"——bars=0 时阈值也是 0，
+            # 而 0 < 0 为假，整日缺失会被误判为"完整"（这个坑真踩到过）。
+            missing = [name for name, value in counts.items()
+                       if value <= 0 or value < bars * 0.95]
+            item = {"tradeDate": trade_date, **counts}
+            # 复权因子单独标注：它是标签计算的依据（forward_* 用 close×adj_factor 复权），
+            # 缺了它下游算不出正确标签，但"日线齐了"在界面上和"数据可用"长得一样。
+            item["missing"] = missing
+            item["adjustmentMissing"] = "adjustments" in missing
+            item["complete"] = not missing
+            out.append(item)
+        return out
+
+    def coverage(self, days: int = 10) -> dict:
+        """最近若干**交易日**的四项覆盖度（日线 / 估值 / 可交易状态 / 复权因子）。
+
+        这是"数据到底能不能用"的唯一权威视图。此前逐日判定只写在
+        research_sync_quality 表里、且只有单日同步路径会写它，区间补拉不写，
+        于是 9/16-9/18 复权因子为 0 时，界面上完全看不出异常。
+        """
+        days = max(1, min(120, int(days)))
+        calendar = [r["calendar_date"] for r in self.db.execute(
+            "SELECT calendar_date FROM trade_calendar WHERE is_open=1 "
+            "ORDER BY calendar_date DESC LIMIT ?", (days,)).fetchall()]
+        if not calendar:
+            return {"days": days, "items": [], "latest": None, "latestComplete": None,
+                    "adjustmentGaps": []}
+        placeholders = ",".join("?" for _ in calendar)
+        sql = f"""
+            SELECT b.trade_date,
+                   COUNT(*) bars,
+                   (SELECT COUNT(*) FROM daily_basic d WHERE d.trade_date=b.trade_date) basic,
+                   (SELECT COUNT(*) FROM security_status_history s WHERE s.trade_date=b.trade_date) status,
+                   (SELECT COUNT(*) FROM adjustment_factors a WHERE a.trade_date=b.trade_date) adj
+            FROM daily_bars b WHERE b.trade_date IN ({placeholders})
+            GROUP BY b.trade_date ORDER BY b.trade_date
+        """
+        found = {r["trade_date"]: r for r in self.db.execute(sql, tuple(calendar)).fetchall()}
+        rows = []
+        for d in sorted(calendar):
+            r = found.get(d)
+            # 完全没有日线的交易日也要显示出来（整日缺失比覆盖不足更严重）
+            rows.append((d, r["bars"] if r else 0, r["basic"] if r else 0,
+                         r["status"] if r else 0, r["adj"] if r else 0))
+        items = self._coverage_rows(rows)
+        latest = items[-1] if items else None
+        return {
+            "days": days,
+            "items": items,
+            "latest": latest,
+            "latestComplete": bool(latest and latest["complete"]),
+            "adjustmentGaps": [i["tradeDate"] for i in items if i["adjustmentMissing"]],
+            "incomplete": [i["tradeDate"] for i in items if not i["complete"]],
+        }
+
     def register_datasets(self, latest_bars: str | None = None, latest_basic: str | None = None) -> None:
         master_latest = self.db.execute("SELECT MAX(updated_at) latest FROM security_master").fetchone()["latest"]
         calendar_latest = self.db.execute("SELECT MAX(calendar_date) latest FROM trade_calendar").fetchone()["latest"]
@@ -282,9 +345,14 @@ class DailySync:
                         self.db.execute("INSERT OR REPLACE INTO history_sync_days VALUES (?,?,?,?)", (trade_date, len(bars), len(valuation), now_iso()))
                         status_count = self.db.execute("SELECT COUNT(*) FROM security_status_history WHERE trade_date=?", (trade_date,)).fetchone()[0]
                         adjustment_count = self.db.execute("SELECT COUNT(*) FROM adjustment_factors WHERE trade_date=?", (trade_date,)).fetchone()[0]
-                        valid = bool(bars and valuation and status_count >= len(bars) * .95 and adjustment_count >= len(bars) * .95)
+                        # 判定收敛到 _coverage_rows（与 /sync/daily/coverage 同一套口径），
+                        # 避免两处各写一份"什么算通过"而产生互相矛盾的结论。
+                        judged = self._coverage_rows(
+                            [(trade_date, len(bars), len(valuation), status_count, adjustment_count)])[0]
+                        valid = bool(bars and valuation) and judged["complete"]
                         error = None if valid else (f"质量未通过: bars={len(bars)}, basic={len(valuation)}, "
-                                                    f"status={status_count}, adjustment={adjustment_count}")
+                                                    f"status={status_count}, adjustment={adjustment_count}；"
+                                                    f"缺: {','.join(judged['missing']) or '—'}")
                         self.db.execute("INSERT OR REPLACE INTO research_sync_quality VALUES(?,?,?,?,?,?,?,?)",
                                         (trade_date, len(bars), len(valuation), status_count, adjustment_count,
                                          "passed" if valid else "gap", error, now_iso()))

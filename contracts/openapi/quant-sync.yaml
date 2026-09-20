@@ -39,6 +39,14 @@ paths:
         '200': { description: Per-table row counts }
         '502': { description: Upstream or write failure }
 
+  /api/v1/sync/daily/coverage:
+    get:
+      operationId: getDailyCoverage
+      summary: Per-trade-date coverage of daily bars / valuation / tradable status / adjustment factors, plus finance-table freshness
+      parameters:
+        - { name: days, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 120, default: 10 } }
+      responses:
+        '200': { description: Read-only endpoint }
   /api/v1/sync/daily/history:
     post:
       operationId: syncDailyHistory

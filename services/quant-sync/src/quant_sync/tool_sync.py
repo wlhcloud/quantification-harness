@@ -145,7 +145,11 @@ class ToolSync:
     def _sync_realtime_index(self, tool_id: str, params: dict[str, Any] | None = None) -> None:
         minute = tool_id == "rt_idx_min"
         freq = str((params or {}).get("freq") or "1MIN").upper()
-        if freq not in {"1MIN", "5MIN", "15MIN", "30MIN", "60MIN"}:
+        # freq 只对分钟工具（rt_idx_min）有意义：日线工具 rt_idx_k 的请求参数里
+        # 根本不带它（见下方 request_params）。此前这里的校验是**无条件**的，
+        # 于是从"上游工具"卡片点 rt_idx_k 的同步按钮必然 400
+        # （"index minute freq must be 1MIN/..."），该入口一次都不可能成功。
+        if minute and freq not in {"1MIN", "5MIN", "15MIN", "30MIN", "60MIN"}:
             raise ValueError("index minute freq must be 1MIN/5MIN/15MIN/30MIN/60MIN")
         request_params = {"ts_code": MAJOR_INDEX_CODES, **({"freq": freq} if minute else {})}
         dataset = "market.index_minute" if minute else "market.index_snapshot"
