@@ -404,6 +404,11 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
                     raise RuntimeError("training cancelled")
                 seed_cfg = dict(model_cfg)
                 seed_cfg["randomState"] = _seed
+                # 多种子稳定性实验时必须同步扰动所有 LightGBM 随机过程；正式单种子
+                # 配置为 42，因此生产训练仍全部固定为 42。
+                seed_cfg["dataRandomSeed"] = _seed
+                seed_cfg["featureFractionSeed"] = _seed
+                seed_cfg["baggingSeed"] = _seed
                 seed_dir = Path(td) / f"seed{_seed}"
                 seed_dir.mkdir(parents=True, exist_ok=True)
                 if use_isolated_cuda:
@@ -624,6 +629,9 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
                 trees = max(1, int(round(float(statistics.median(counts)))))
                 seed_cfg = dict(model_cfg)
                 seed_cfg["randomState"] = seed
+                seed_cfg["dataRandomSeed"] = seed
+                seed_cfg["featureFractionSeed"] = seed
+                seed_cfg["baggingSeed"] = seed
                 result = etf_ranker.train_ranker_final(
                     frame, label, seed_cfg, refit_dir / f"seed{seed}", trees,
                     cancelled=cancelled)
@@ -1249,6 +1257,10 @@ def get_model_config(config_path: Path) -> dict[str, Any]:
             "colsampleBytree": model_cfg.get("colsampleBytree"),
             "randomState": model_cfg.get("randomState"),
             "randomStates": model_cfg.get("randomStates"),
+            "dataRandomSeed": model_cfg.get("dataRandomSeed", model_cfg.get("randomState")),
+            "featureFractionSeed": model_cfg.get("featureFractionSeed", model_cfg.get("randomState")),
+            "baggingSeed": model_cfg.get("baggingSeed", model_cfg.get("randomState")),
+            "extraTrees": bool(model_cfg.get("extraTrees", False)),
             "ensembleMethod": model_cfg.get("ensembleMethod") or (model_cfg.get("randomStates") and len(model_cfg["randomStates"]) > 1 and "mean_zscore" or "single"),
             "earlyStopping": model_cfg.get("earlyStopping"),
             "validationDays": model_cfg.get("validationDays"),

@@ -73,12 +73,14 @@ model:
   subsample: 1.0
   colsampleBytree: 0.8
   randomState: 42
-  # 多种子集成：每个 walkforward 窗口用下列种子各训练一个模型，预测分数 z-score 标准化后按 ensembleMethod 聚合，降低单种子随机性
-  # 置为空列表 [] 或删除本行则退化为单种子（randomState）模式
-  # 先使用3种子控制训练成本；10种子需在独立消融实验确认有稳定增益后才能恢复。
-  randomStates: [42, 123, 456]
-  # 集成方法：mean_zscore（等权平均，默认）或 median_zscore（中位数，抗异常值更稳健）
-  ensembleMethod: median_zscore
+  # 正式生产固定单种子；多种子只用于独立的最近窗口稳定性实验，不参与生产集成或择优。
+  randomStates: [42]
+  # 显式固定 LightGBM 各随机过程。即使 colsampleBytree<1，同数据同参数也能稳定复现。
+  dataRandomSeed: 42
+  featureFractionSeed: 42
+  baggingSeed: 42
+  extraTrees: false
+  ensembleMethod: mean_zscore
   earlyStopping: 30
   validationDays: 40
   testDays: 40
