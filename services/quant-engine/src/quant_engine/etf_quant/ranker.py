@@ -151,6 +151,7 @@ def train_ranker(frame: list[dict[str, Any]], label: str, model_cfg: dict[str, A
     cpu_jobs = int(model_cfg.get("cpuNJobs", -1))
 
     def make_model(device: str) -> Any:
+        deterministic = bool(model_cfg.get("deterministic", False)) and device == "cpu"
         return lgb.LGBMRanker(
             objective="lambdarank", metric=str(model_cfg.get("evalMetric", "ndcg")),
             n_estimators=int(model_cfg.get("nEstimators", 300)),
@@ -159,6 +160,8 @@ def train_ranker(frame: list[dict[str, Any]], label: str, model_cfg: dict[str, A
             subsample=float(model_cfg.get("subsample", 0.8)), colsample_bytree=float(model_cfg.get("colsampleBytree", 0.8)),
             random_state=int(model_cfg.get("randomState", 42)),
             n_jobs=1 if device != "cpu" else cpu_jobs, device_type=device,
+            deterministic=deterministic,
+            force_col_wise=bool(model_cfg.get("forceColWise", deterministic)),
             verbosity=-1, label_gain=gains["gains"])
 
     model = make_model(requested_device)

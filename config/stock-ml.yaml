@@ -50,18 +50,16 @@ featuresOverride:
 - turnover_surge
 - close_position_5d
 model:
-  # 优先使用NVIDIA CUDA；CUDA版LightGBM不可用/初始化失败时自动回退CPU全核。
-  deviceType: cuda
-  # Linux 上 deviceType=cuda 且 cudaInProcess=false 时会走"隔离进程"路径
-  # （训练帧 pickle 落盘 -> spawn 子进程 -> 子进程重新加载）。
-  # 实测该路径的固定开销大于 GPU 收益：单窗口 2.4GB pickle 落盘 15-26s，
-  # 每个种子子进程 78-116s，端到端反而比进程内慢（隔离 1068s vs 进程内 644s/窗口级）。
-  # 已固化为 true：在原进程内用 GPU 训练，不落盘、不 spawn。
-  # 实测 device_type=cuda 在真实因子数据上 GPU 利用率峰值 74-86%、非零占比 40-88%，
-  # 且 CPU 并行仍可同时使用（num_threads=-1 + GPU 并行是最快组合 4.05s/200棵）。
-  cudaInProcess: true
+  # 量化研究优先保证同数据、同参数的可复现性：LightGBM deterministic 仅支持 CPU。
+  # A100 留给后续 Transformer/PyTorch 时序模型；本策略约5000只股票×31因子无需依赖GPU。
+  deviceType: cpu
+  # CPU 路径不使用 CUDA 隔离进程；保留该键用于配置回显和兼容历史版本。
+  cudaInProcess: false
   cpuFallback: true
   cpuNJobs: -1
+  deterministic: true
+  # deterministic 模式下显式固定直方图构建方式，避免运行时自动选择造成差异。
+  forceColWise: true
   nEstimators: 300
   learningRate: 0.03
   numLeaves: 31

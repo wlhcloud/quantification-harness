@@ -169,10 +169,9 @@ bash deploy/screen-status.sh          # 会话 + 端口 + 健康检查
   如果哪天又出现 `deploy/run-service.sh: Permission denied`（9102 起不来），
   先确认 `git ls-files -s deploy/ | grep 755` 正常，再 `chmod +x deploy/*.sh` 应急。
 
-> ✅ **2026-09-20 起，仓库与服务器共用同一份 `config/stock-ml.yaml`**：
-> `deviceType: cuda` + `cudaInProcess: true`。此前服务器必须手工改成 `cpu` 才能避开
-> 「隔离进程」路径的双份内存（见 §7.1）；`cudaInProcess` 落地后这个分歧已消除，
-> 重跑 `install.sh` / 同步仓库不再需要事后改配置。
+> ✅ 仓库与服务器共用同一份 `config/stock-ml.yaml`。2026-09-22 起股票模型训练固定为
+> `deviceType: cpu` + `deterministic: true` + `forceColWise: true`，优先保证量化研究结果
+> 可复现；A100 留给后续 Transformer/PyTorch 时序模型。
 
 ## 5. 已安装的关键包（实测）
 
@@ -218,12 +217,11 @@ bash deploy/screen-status.sh          # 会话 + 端口 + 健康检查
 
 | 文件 | 仓库（Windows） | 服务器 | 说明 |
 |---|---|---|---|
-| `config/stock-ml.yaml` → `model.deviceType` | `cuda` | **`cuda`** | 已一致 |
-| `config/stock-ml.yaml` → `model.cudaInProcess` | `true` | **`true`** | 已一致 |
+| `config/stock-ml.yaml` → `model.deviceType` | `cpu` | **`cpu`** | 已一致 |
+| `config/stock-ml.yaml` → `model.deterministic` | `true` | **`true`** | CPU确定性训练 |
+| `config/stock-ml.yaml` → `model.forceColWise` | `true` | **`true`** | 固定直方图构建方式 |
 
-历史上这里有一行差异（服务器 `cpu` / 仓库 `cuda`），原因是 Linux 上 `deviceType: cuda`
-会走「pickle 落盘 + spawn 子进程」的隔离路径、内存翻倍。该问题已由
-`model.cudaInProcess: true` 从根上解决（见 §7.1），两处配置因此收敛为同一份。
+历史 CUDA 路径及隔离进程问题保留在下文作为排障记录；当前股票生产训练不再使用该路径。
 
 ## 7. 训练模型
 
@@ -479,8 +477,8 @@ npm run dev          # http://127.0.0.1:3082
 | 端口被占 | `fuser -k -TERM -n tcp 9102`；或 `bash deploy/screen-down.sh engine` |
 | **服务整个消失、日志无异常** | **大概率被 OOM killer 杀了**：`dmesg -T \| grep -i "killed process"`；恢复用 `bash deploy/screen-up.sh` |
 | job 报 `worker process restarted before completion` | 父进程在训练中途死了（通常就是 OOM）；同一条报错在本机历史上也反复出现过 |
-| 训练内存异常大 / OOM | 检查 `grep -E "deviceType\|cudaInProcess" config/stock-ml.yaml` 必须是 `cuda` + `true`（见 §7.1）；`cudaInProcess: false` 会退回双份内存的隔离路径 |
-| 训练实际跑在 CPU 上 | 看运行结果里的 `effectiveDevice`：`deviceType: cuda` 时它应为 `cuda`；若为 `cpu` 说明 CUDA 版 LightGBM 没装好（`cpuFallback` 静默回退了） |
+| 训练内存异常大 / OOM | 当前应为 `deviceType: cpu`；检查是否有人用 job 参数覆盖成 CUDA 隔离路径，并核对并发任务数量 |
+| 训练是否按确定性 CPU 运行 | 配置接口应回显 `deviceType=cpu`、`deterministic=true`、`forceColWise=true`；运行结果 `effectiveDevice` 应为 `cpu` |
 | 界面进度长时间停在 0% | 窗口 1 的因子帧加载阶段不上报进度（约 5 分钟），属正常 |
 | screen 会话莫名消失 | 会话内进程退出了；日志在 `logs/`，`screen -r` 可看到退出原因 |
 | `sync.db` 里 `rt_idx_k` / `rt_idx_min` 大量 `error` | **既有上游问题，不是部署问题**（见下） |
