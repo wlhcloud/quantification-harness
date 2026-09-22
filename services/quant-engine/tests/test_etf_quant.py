@@ -228,6 +228,25 @@ class WalkForwardTests(unittest.TestCase):
         self.assertEqual(latest["run_id"], result["runId"])
         self.assertTrue(latest["daily"])
 
+    def test_cpu_final_refit_is_reproducible_and_uses_all_rows(self):
+        frame = []
+        for day in range(12):
+            for code in range(8):
+                frame.append({"trade_date": f"202601{day + 1:02d}", "code": f"C{code}",
+                              "mom20": float(code + day / 10),
+                              "mom60": float((code * 3 + day) % 11),
+                              "forward_3": float(code - 3) / 100 + day / 10000})
+        cfg = {"deviceType": "cpu", "cpuNJobs": 2, "deterministic": True,
+               "forceColWise": True, "randomState": 42, "learningRate": 0.05,
+               "numLeaves": 7, "minDataInLeaf": 2, "labelGrades": 5,
+               "featuresOverride": ["mom20", "mom60"], "subsample": 1.0,
+               "colsampleBytree": 0.8}
+        one = etf_ranker.train_ranker_final(frame, "forward_3", cfg, self.tmp / "final-one", 15)
+        two = etf_ranker.train_ranker_final(frame, "forward_3", cfg, self.tmp / "final-two", 15)
+        self.assertEqual(one["trainRows"], len(frame))
+        self.assertEqual(one["trainEnd"], "20260112")
+        self.assertEqual(Path(one["modelPath"]).read_bytes(), Path(two["modelPath"]).read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()

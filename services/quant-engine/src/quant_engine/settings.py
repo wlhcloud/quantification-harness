@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     project_root: Path = DEFAULT_ROOT
     host: str = "127.0.0.1"
     port: int = 9102
-    max_workers: int = 2
+    # 量化训练是重 CPU/内存任务；全局串行避免 ETF 与股票训练互相争抢资源。
+    max_workers: int = 1
     api_key: str = ""
     # 诊断用：key 实际来自哪个环境变量（health 会返回）
     api_key_source: str = ""

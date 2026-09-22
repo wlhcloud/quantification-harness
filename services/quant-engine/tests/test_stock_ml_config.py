@@ -105,9 +105,14 @@ class ConfigWarningTest(unittest.TestCase):
         self.assertFalse(out["model"]["cudaInProcess"])
         self.assertTrue(out["model"]["deterministic"])
         self.assertTrue(out["model"]["forceColWise"])
+        self.assertEqual(out["model"]["cpuNJobs"], 24)
+        self.assertEqual(out["model"]["subsample"], 1.0)
         # 发布门槛：minPositiveWindowRate 于 2026-09-19 由 0.55 下调至 0.50
         # （25 样本窗口统计功效不足，13/25 与 14/25 不可区分）。锁死该值防止无声回退。
         self.assertAlmostEqual(out.get("publishGate", {}).get("minPositiveWindowRate"), 0.50)
+        self.assertEqual(out["publishGate"]["recentWindows"], 6)
+        self.assertEqual(out["publishGate"]["minRecentTotalReturn"], 0.0)
+        self.assertEqual(out["publishGate"]["minRecentAvgRankIc"], 0.0)
         self.assertEqual(out["configWarnings"], [])
 
     def test_label_in_shipped_config_is_service_owned(self):

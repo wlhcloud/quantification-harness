@@ -183,6 +183,16 @@ class PublishedCandidatesTest(unittest.TestCase):
         self.assertTrue(any("换手" in item for item in failures))
         self.assertTrue(any("盈利窗口" in item for item in failures))
 
+    def test_publish_gate_rejects_recent_regime_decay(self):
+        metrics = {"windows": 25, "sharpe": 1.0, "excessReturn": 0.1,
+                   "maxDrawdown": -0.15, "recentWindowCount": 6,
+                   "recentTotalReturn": -0.03, "recentAvgRankIc": -0.01}
+        gate = {"recentWindows": 6, "minRecentTotalReturn": 0.0,
+                "minRecentAvgRankIc": 0.0}
+        failures = stock_ml._publish_gate_failures(metrics, "full_walkforward", gate)
+        self.assertTrue(any("最近6窗口累计收益" in item for item in failures))
+        self.assertTrue(any("最近6窗口平均RankIC" in item for item in failures))
+
     def test_auxiliary_freshness_cannot_erase_performance_blockers(self):
         performance = ["Sharpe低于0.5", "超额收益不高于0"]
         self.assertEqual(

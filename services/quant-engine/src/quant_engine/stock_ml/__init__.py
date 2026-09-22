@@ -18,6 +18,7 @@ import math
 import multiprocessing
 import pickle
 import sqlite3
+import statistics
 import sys
 import time
 import gc
@@ -138,6 +139,19 @@ def _publish_gate_failures(metrics: dict[str, Any], evaluation_scope: str,
         minimum = float(gate_cfg["minPositiveWindowRate"])
         if float(metrics.get("positiveWindowRate", float("-inf"))) < minimum:
             failures.append(f"盈利窗口比例低于{minimum:.0%}")
+    recent_windows = int(gate_cfg.get("recentWindows", 0) or 0)
+    if recent_windows > 0 and int(metrics.get("recentWindowCount", 0)) < recent_windows:
+        failures.append(f"近期窗口数低于{recent_windows}")
+    elif recent_windows > 0:
+        if "minRecentTotalReturn" in gate_cfg:
+            minimum = float(gate_cfg["minRecentTotalReturn"])
+            if float(metrics.get("recentTotalReturn", float("-inf"))) <= minimum:
+                failures.append(f"最近{recent_windows}窗口累计收益不高于{minimum:.0%}")
+        if "minRecentAvgRankIc" in gate_cfg:
+            minimum = float(gate_cfg["minRecentAvgRankIc"])
+            value = metrics.get("recentAvgRankIc")
+            if value is None or float(value) <= minimum:
+                failures.append(f"最近{recent_windows}窗口平均RankIC不高于{minimum:g}")
     return failures
 
 
@@ -310,7 +324,8 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     run_id = f"stock-wf-{_now().replace(':', '').replace('-', '').replace('.', '')}"
     # 代码版本自证：曾出现"以为改了代码、实际跑的是旧进程"的情形，结果看起来像
     # "改动无效"。把判定标记同时写进 job 结果与 run-metadata，任何人看 run 都能确认。
-    engine_version = {"pendingSellRetry": True, "cudaInProcessSwitch": True}
+    engine_version = {"pendingSellRetry": True, "cudaInProcessSwitch": True,
+                      "fullLabelProductionRefit": True, "recentRegimeGate": True}
     daily_rows: list[dict[str, Any]] = []
     window_stats: list[dict[str, Any]] = []
     total_transaction_cost = 0.0
@@ -333,9 +348,10 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     sample_rows = int(wf_cfg.get("sampleRows", 0) or 0)
     # 多种子集成：model.randomStates 列表优先；否则用单个 model.randomState（向后兼容）
     ensemble_seeds = model_cfg.get("randomStates")
-    if ensemble_seeds is None:
+    if not ensemble_seeds:
         ensemble_seeds = [int(model_cfg.get("randomState", 42))]
     ensemble_seeds = [int(s) for s in ensemble_seeds]
+    tree_counts_by_seed: dict[int, list[int]] = {seed: [] for seed in ensemble_seeds}
     n_ensemble = len(ensemble_seeds)
     ensemble_method = str(model_cfg.get("ensembleMethod") or cfg.get("ensembleMethod") or "mean_zscore")
     if ensemble_method not in ("mean_zscore", "median_zscore"):
@@ -413,28 +429,9 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             # 而历史指标里没有任何一项会报警。这里把树数写进窗口统计并做显式告警。
             window_tree_counts = [int(b.num_trees()) for b in window_boosters]
             all_tree_counts.extend(window_tree_counts)
+            for seed, count in zip(ensemble_seeds, window_tree_counts):
+                tree_counts_by_seed.setdefault(seed, []).append(count)
             window_mean_trees = sum(window_tree_counts) / len(window_tree_counts)
-            latest_model_path = str(artifact_dir / "stock-wf-model.txt")
-            latest_model_path_dir = Path(latest_model_path).parent
-            latest_model_path_dir.mkdir(parents=True, exist_ok=True)
-            import shutil
-            if n_ensemble > 1:
-                # 保存全部种子模型 + 集成清单
-                saved = model.save_models(latest_model_path_dir, "stock-wf-model")  # type: ignore[union-attr]
-                manifest = {
-                    "seeds": ensemble_seeds,
-                    "modelFiles": saved,
-                    "ensemble": ensemble_method,
-                    "generatedAt": _now(),
-                }
-                (latest_model_path_dir / "stock-wf-model_ensemble_seeds.json").write_text(
-                    json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-            else:
-                shutil.copy(res["modelPath"], latest_model_path)  # type: ignore[union-attr]
-                # 单模型时清理可能残留的旧集成清单，避免误加载
-                stale_manifest = latest_model_path_dir / "stock-wf-model_ensemble_seeds.json"
-                if stale_manifest.exists():
-                    stale_manifest.unlink()
         finally:
             shutil.rmtree(td, ignore_errors=True)
         test_days_list = [d for d in dates if test_start <= d <= test_end]
@@ -523,6 +520,11 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     positive_window_rate = (
         sum(float(w["windowReturn"]) > 0 for w in window_stats) / len(window_stats)
         if window_stats else 0.0)
+    recent_n = min(int(publish_gate_cfg.get("recentWindows", 0) or 0), len(window_stats))
+    recent_stats = window_stats[-recent_n:] if recent_n else []
+    recent_total = (math.prod(1.0 + float(w["windowReturn"]) for w in recent_stats) - 1.0
+                    if recent_stats else 0.0)
+    recent_ics = [float(w["rankIc"]) for w in recent_stats if w.get("rankIc") is not None]
     # 模型规模记录（中性提示，不做因果判断）。
     # 注意：早期版本这里写成"平均树数低于上限 20% = 模型欠训练、早停该放宽"的告警，
     # 该判断已被跨窗口扫描证伪 —— 实测 avgRankIC 随树数上限单调递减
@@ -545,6 +547,9 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
                "costReturnDrag": round(no_cost_total - total, 4),
                "avgRankIc": round(float(np.mean(ic_vals)), 4) if ic_vals else None,
                "positiveWindowRate": round(positive_window_rate, 4),
+               "recentWindowCount": len(recent_stats),
+               "recentTotalReturn": round(recent_total, 4),
+               "recentAvgRankIc": round(float(np.mean(recent_ics)), 4) if recent_ics else None,
                "transactionCost": round(total_transaction_cost, 2),
                "transactionCostRate": round(total_transaction_cost / 1_000_000.0, 4),
                "annualTransactionCostRate": round(
@@ -588,21 +593,80 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     publish_top_n = max(int(bt_cfg.get("topN", 5)),
                         int(wf_cfg.get("publishTopN", cfg.get("publishTopN", 20))))
     hold_date = span_end
-    if latest_model_path:
-        con2 = connect(factors_path)
+    con2 = connect(factors_path)
+    try:
+        latest_feat = con2.execute(
+            "SELECT MAX(trade_date) FROM stock_ml_factors WHERE momentum20 IS NOT NULL").fetchone()[0]
+        if latest_feat:
+            hold_date = latest_feat
+    finally:
+        con2.close()
+    aux_freshness = aux_factor_freshness(
+        factors_path, hold_date, required_features=list(model_cfg.get("featuresOverride") or []))
+    publish_blockers = _merge_publish_blockers(publish_blockers, list(aux_freshness["warnings"]))
+
+    # 评估模型只用于 OOS 回测。完整评估通过全部发布门槛后，再用截至当前的所有
+    # 已知标签重训生产模型；树数取每个种子在各窗口早停结果的中位数。
+    production_refit: dict[str, Any] = {
+        "required": not dry_run and not publish_blockers,
+        "performed": False,
+        "trainStart": None, "trainEnd": None, "trainRows": 0, "treesBySeed": {},
+    }
+    if not dry_run and not publish_blockers:
+        import shutil
+        refit_dir = artifact_dir / "tmp" / f"{run_id}-final-refit"
+        refit_dir.mkdir(parents=True, exist_ok=True)
         try:
-            latest_feat = con2.execute(
-                "SELECT MAX(trade_date) FROM stock_ml_factors WHERE momentum20 IS NOT NULL").fetchone()[0]
-            if latest_feat:
-                hold_date = latest_feat
+            final_boosters: list[Any] = []
+            final_results: list[dict[str, Any]] = []
+            for seed in ensemble_seeds:
+                counts = tree_counts_by_seed.get(seed) or all_tree_counts
+                trees = max(1, int(round(float(statistics.median(counts)))))
+                seed_cfg = dict(model_cfg)
+                seed_cfg["randomState"] = seed
+                result = etf_ranker.train_ranker_final(
+                    frame, label, seed_cfg, refit_dir / f"seed{seed}", trees,
+                    cancelled=cancelled)
+                final_results.append(result)
+                final_boosters.append(lgb.Booster(model_file=result["modelPath"]))
+                effective_devices.add(str(result.get("effectiveDevice", "cpu")))
+                production_refit["treesBySeed"][str(seed)] = trees
+            latest_model_path = str(artifact_dir / "stock-wf-model.txt")
+            latest_dir = Path(latest_model_path).parent
+            staged_dir = refit_dir / "publish"
+            staged_dir.mkdir(parents=True, exist_ok=True)
+            final_model = (EnsembleRanker(final_boosters, ensemble_seeds, method=ensemble_method)
+                           if n_ensemble > 1 else final_boosters[0])
+            if n_ensemble > 1:
+                saved = final_model.save_models(staged_dir, "stock-wf-model")  # type: ignore[union-attr]
+                root_files = [str(latest_dir / Path(item).name) for item in saved]
+                (staged_dir / "stock-wf-model_ensemble_seeds.json").write_text(
+                    json.dumps({"seeds": ensemble_seeds, "modelFiles": root_files,
+                                "ensemble": ensemble_method, "generatedAt": _now(),
+                                "productionRefit": True}, ensure_ascii=False, indent=2), encoding="utf-8")
+                staged_manifest = staged_dir / "stock-wf-model_ensemble_seeds.json"
+                for source in sorted(p for p in staged_dir.glob("stock-wf-model*")
+                                     if p != staged_manifest):
+                    source.replace(latest_dir / source.name)
+                # 清单最后替换：并发读取者要么看到完整旧集成，要么看到完整新集成。
+                staged_manifest.replace(latest_dir / staged_manifest.name)
+            else:
+                staged_model = staged_dir / "stock-wf-model.txt"
+                shutil.copy2(final_results[0]["modelPath"], staged_model)
+                staged_model.replace(latest_model_path)
+                stale_manifest = latest_dir / "stock-wf-model_ensemble_seeds.json"
+                if stale_manifest.exists():
+                    stale_manifest.unlink()
+            production_refit.update({
+                "performed": True,
+                "trainStart": final_results[0]["trainStart"],
+                "trainEnd": final_results[0]["trainEnd"],
+                "trainRows": final_results[0]["trainRows"],
+                "effectiveDevices": sorted({str(r["effectiveDevice"]) for r in final_results}),
+            })
         finally:
-            con2.close()
-        # 实盘预测不能在训练时有辅助特征、信号日却整列缺失。过期时允许完成
-        # 研究回测和保存模型，但禁止覆盖正式候选池。
-        aux_freshness = aux_factor_freshness(
-            factors_path, hold_date, required_features=list(model_cfg.get("featuresOverride") or []))
-        publish_blockers = _merge_publish_blockers(
-            publish_blockers, list(aux_freshness["warnings"]))
+            shutil.rmtree(refit_dir, ignore_errors=True)
+    if latest_model_path:
         model = _load_ensemble_or_single(Path(latest_model_path))
         feat_cols = list(model.feature_name())
         con3 = connect(factors_path)
@@ -680,8 +744,6 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
 
     # 辅助因子新鲜度断言：行业/资金流因子曾经落后信号日 2 天而无人察觉（特征静默缺失）。
     # 这里只告警不阻塞（模型对 NaN 有处理），但会写进结果与 job 结果，任何人看 run 都能发现。
-    aux_freshness = aux_factor_freshness(
-        factors_path, hold_date, required_features=list(model_cfg.get("featuresOverride") or []))
     for warning in aux_freshness["warnings"]:
         print(f"[WARN] 辅助因子新鲜度：{warning}", flush=True)
     # 先组装"实际生效配置"本体，再对它取指纹。指纹字段本身绝不能参与哈希，
@@ -711,7 +773,8 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     # 配置可观测性：指纹（实际生效配置哈希 + YAML 文件哈希 + 服务启动时的代码版本）。
     # config_path 为 None 时（直接调用本函数）YAML 哈希为空、其余照常记录。
     fingerprint = build_fingerprint(effective_cfg, config_path)
-    config_json = json.dumps({**effective_cfg, **fingerprint}, ensure_ascii=False)
+    config_json = json.dumps({**effective_cfg, **fingerprint,
+                              "productionRefit": production_refit}, ensure_ascii=False)
     holdings_json = json.dumps({"tradeDate": hold_date, "holdings": holdings}, ensure_ascii=False)
     # 每个run固化自己的模型和集成清单，历史版本不再依赖会被下次训练覆盖的latest文件。
     run_model_path: Path | None = None
@@ -764,6 +827,7 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
         "runId": run_id, "generatedAt": _now(), "config": json.loads(config_json),
         "engineVersion": engine_version,
         "metrics": metrics, "modelSha256": model_sha256,
+        "productionRefit": production_refit,
         "fingerprint": fingerprint,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not dry_run:
@@ -800,6 +864,7 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             "auxFactorLatest": aux_freshness["tables"], "auxFactorWarnings": aux_freshness["warnings"],
             "signalModel": ML_MODEL_ID, "dryRun": dry_run, "configWarnings": config_warnings,
             "treeNotes": tree_notes,
+            "productionRefit": production_refit,
             "engineVersion": engine_version,
             # 配置指纹回显：任务结果里就能确认"本次用了什么配置、哪个代码版本"，
             # 不必等落库后再去查（dryRun 也照常回显）。

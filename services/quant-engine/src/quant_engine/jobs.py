@@ -29,7 +29,8 @@ DEFAULT_JOB_TIMEOUTS: dict[JobType, float] = {
     JobType.STOCK_ML_FACTORS: 60 * 60,
     JobType.STOCK_INDUSTRY_FACTORS: 30 * 60,
     JobType.STOCK_MONEY_FLOW_FACTORS: 30 * 60,
-    JobType.STOCK_WALKFORWARD: 2 * 60 * 60,
+    # CPU deterministic 的 25窗口×3种子完整回测需要给足时间；协作取消仍可提前终止。
+    JobType.STOCK_WALKFORWARD: 4 * 60 * 60,
     JobType.STOCK_ML_BACKTEST: 60 * 60,
     JobType.STOCK_ML_PREDICT: 30 * 60,
 }

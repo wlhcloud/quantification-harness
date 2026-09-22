@@ -15,6 +15,10 @@ publishGate:
   # 回撤 −14.69%、换手 26.18 过门槛），却因 52% < 55% 被否决。
   # 下调后该 run 按自身指标通过；如需恢复原阈值，改回 0.55（会同时否决该 run）。
   minPositiveWindowRate: 0.50
+  # 全周期指标可能掩盖近期失效；最近6个OOS窗口必须同时保持正收益和正RankIC。
+  recentWindows: 6
+  minRecentTotalReturn: 0.0
+  minRecentAvgRankIc: 0.0
 featuresOverride:
 - momentum20
 - momentum60
@@ -56,7 +60,8 @@ model:
   # CPU 路径不使用 CUDA 隔离进程；保留该键用于配置回显和兼容历史版本。
   cudaInProcess: false
   cpuFallback: true
-  cpuNJobs: -1
+  # 服务器32核，保留8核给数据库、API和系统任务。
+  cpuNJobs: 24
   deterministic: true
   # deterministic 模式下显式固定直方图构建方式，避免运行时自动选择造成差异。
   forceColWise: true
@@ -64,7 +69,8 @@ model:
   learningRate: 0.03
   numLeaves: 31
   minDataInLeaf: 20
-  subsample: 0.8
+  # LightGBM 未设置 bagging_freq 时 subsample<1 不生效；显式设1避免配置误导。
+  subsample: 1.0
   colsampleBytree: 0.8
   randomState: 42
   # 多种子集成：每个 walkforward 窗口用下列种子各训练一个模型，预测分数 z-score 标准化后按 ensembleMethod 聚合，降低单种子随机性
