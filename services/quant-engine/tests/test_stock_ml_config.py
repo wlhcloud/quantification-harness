@@ -148,6 +148,24 @@ class ConfigWarningTest(unittest.TestCase):
             self.assertEqual(out["items"][0]["resultVersion"], 1)
             self.assertFalse(stock_ml.publish_walkforward(path, "old")["ok"])
 
+    def test_result_without_provenance_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "factors.db"
+            con = stock_ml.connect(path)
+            con.executescript(stock_ml.SCHEMA)
+            stock_ml._ensure_walkforward_columns(con)
+            con.execute(
+                "INSERT INTO stock_walkforward_runs(run_id,generated_at,label,start_date,end_date,windows,"
+                "config,metrics,holdings,status,result_version,is_published) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("no-proof", "t", "forward_3", "a", "b", 25,
+                 '{"evaluationScope":"full_walkforward"}',
+                 '{"windows":25,"sharpe":1,"excessReturn":1,"maxDrawdown":-0.1}',
+                 '{"tradeDate":"20260918"}', "complete", 2, 0))
+            con.commit(); con.close()
+            out = stock_ml.publish_walkforward(path, "no-proof")
+            self.assertFalse(out["ok"])
+            self.assertIn("指纹", out["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

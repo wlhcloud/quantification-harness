@@ -950,11 +950,17 @@ def publish_walkforward(factors_path: Path, run_id: str) -> dict[str, Any]:
     try:
         _ensure_walkforward_columns(con)
         # 检查run_id是否存在
-        row = con.execute("SELECT run_id,label,result_version,holdings,config,metrics FROM stock_walkforward_runs WHERE run_id=?", (run_id,)).fetchone()
+        row = con.execute(
+            "SELECT run_id,label,result_version,holdings,config,metrics,config_sha256,"
+            "config_yaml_sha256,git_commit,git_dirty FROM stock_walkforward_runs WHERE run_id=?",
+            (run_id,)).fetchone()
         if not row:
             return {"ok": False, "error": f"run_id不存在: {run_id}"}
         if int(row["result_version"]) < 2:
             return {"ok": False, "error": "旧执行口径结果已标记为legacy，不能重新发布；请先按新口径重跑"}
+        if (not row["config_sha256"] or not row["config_yaml_sha256"] or not row["git_commit"]
+                or row["git_dirty"] is None or bool(row["git_dirty"])):
+            return {"ok": False, "error": "运行缺少可信配置/Git指纹，禁止发布；请按当前版本完整重跑"}
         holding_date = (json.loads(row["holdings"] or "{}").get("tradeDate"))
         run_config = json.loads(row["config"] or "{}")
         gate_failures = _publish_gate_failures(
