@@ -160,6 +160,21 @@ def _merge_publish_blockers(existing: list[str], additional: list[str]) -> list[
     return list(dict.fromkeys([*existing, *additional]))
 
 
+def _walkforward_start_indices(n_dates: int, min_train: int, valid_days: int,
+                               test_days: int, step_days: int,
+                               max_windows: int = 0) -> list[int]:
+    """Return the canonical full-run grid, optionally sliced to its last N windows.
+
+    Recent experiments must reuse the exact same date grid as the full walk-forward;
+    anchoring from the dataset end both shifted dates and produced N+1 windows.
+    """
+    first = min_train + valid_days
+    starts = list(range(first, n_dates - test_days + 1, step_days))
+    if max_windows > 0:
+        starts = starts[-max_windows:]
+    return starts
+
+
 def _train_ranker_isolated(frame_file: Path, label: str, model_cfg: dict[str, Any],
                            output_dir: Path, cancelled: Callable[[], bool]) -> dict[str, Any]:
     """Train one CUDA model in a disposable process to contain native leaks."""
@@ -310,9 +325,11 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     if not frame:
         raise ValueError("无因子/标签数据，请先运行 stock_ml_factors")
     dates = sorted({r["trade_date"] for r in frame})
-    first_test_index = min_train + valid_days
-    if max_windows > 0:
-        first_test_index = max(first_test_index, len(dates) - max_windows * step_days - test_days)
+    window_start_indices = _walkforward_start_indices(
+        len(dates), min_train, valid_days, test_days, step_days, max_windows)
+    if not window_start_indices:
+        raise ValueError("滚动窗口不足，无法执行 walk-forward")
+    first_test_index = window_start_indices[0]
     first_bar_date = dates[min(first_test_index, len(dates) - 1)]
     bar_start_date = (_lookback_start_date(market_path, first_bar_date, 25)
                       if (bt_cfg.get("technicalTiming") or {}).get("enabled", False)
@@ -342,8 +359,8 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     trade_records: list[dict[str, Any]] = []
     effective_devices: set[str] = set()
     latest_model_path: str | None = None
-    k = min_train + valid_days
-    n_windows = max(1, (len(dates) - min_train - valid_days) // step_days)
+    k = first_test_index
+    n_windows = len(window_start_indices)
     evaluation_scope = "recent_refresh" if max_windows > 0 else "full_walkforward"
     sample_rows = int(wf_cfg.get("sampleRows", 0) or 0)
     # 多种子集成：model.randomStates 列表优先；否则用单个 model.randomState（向后兼容）
@@ -356,17 +373,13 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     ensemble_method = str(model_cfg.get("ensembleMethod") or cfg.get("ensembleMethod") or "mean_zscore")
     if ensemble_method not in ("mean_zscore", "median_zscore"):
         ensemble_method = "mean_zscore"
-    if max_windows > 0 and max_windows < n_windows:
-        # 只跑最近 max_windows 个窗口（每日链增量：控制耗时）
-        k = max(min_train + valid_days, len(dates) - max_windows * step_days - test_days)
-        n_windows = max_windows
     window_index = 0
     # 残留临时帧清扫：隔离 CUDA 路径每个窗口落一个约 2.5GB 的 train-frame.pkl，
     # 正常路径由 finally 里的 rmtree 清掉；但 job 被 kill / 进程被 OOM 杀掉时
     # finally 不执行，文件会永久残留（实测机器上积了 2.6GB×N）。
     # 这里在开跑前清掉上一次运行留下的窗口目录，避免磁盘被慢慢吃满。
     _sweep_stale_window_tmp(artifact_dir, preserve_seconds=3600)
-    while k + test_days <= len(dates):
+    while window_index < n_windows:
         test_start, test_end = dates[k], dates[k + test_days - 1]
         train_frame = [r for r in frame if r["trade_date"] < test_start]
         if sample_rows and len(train_frame) > sample_rows:
@@ -823,14 +836,14 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             for item in sorted(run_dir.glob("stock-wf-model*"), key=lambda p: p.name):
                 digest.update(item.name.encode("utf-8")); digest.update(item.read_bytes())
             model_sha256 = digest.hexdigest()
-        # 归因产物必须与模型一样按 run_id 固化，否则下一次运行会覆盖
-        # 根目录中的 latest 文件，历史结果将无法精确复盘。
-        for artifact_name in (
-            "stock-wf-window-stats.json", "stock-wf-trades.jsonl", "stock-wf-daily-nav.json"
-        ):
-            source = artifact_dir / artifact_name
-            if source.exists():
-                shutil.copy2(source, run_dir / artifact_name)
+    # 归因产物无论是否通过发布门槛都必须按 run_id 固化。旧逻辑把复制放在
+    # latest_model_path 条件内，导致恰恰最需要诊断的被阻止 run 丢失明细。
+    for artifact_name in (
+        "stock-wf-window-stats.json", "stock-wf-trades.jsonl", "stock-wf-daily-nav.json"
+    ):
+        source = artifact_dir / artifact_name
+        if source.exists():
+            shutil.copy2(source, run_dir / artifact_name)
     (run_dir / "run-metadata.json").write_text(json.dumps({
         "runId": run_id, "generatedAt": _now(), "config": json.loads(config_json),
         "engineVersion": engine_version,

@@ -18,6 +18,16 @@ CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "stock-ml.yaml"
 
 
 class ConfigWarningTest(unittest.TestCase):
+    def test_recent_windows_are_exact_tail_of_full_grid(self):
+        full = stock_ml._walkforward_start_indices(
+            n_dates=1257, min_train=200, valid_days=40,
+            test_days=40, step_days=40)
+        recent = stock_ml._walkforward_start_indices(
+            n_dates=1257, min_train=200, valid_days=40,
+            test_days=40, step_days=40, max_windows=6)
+        self.assertEqual(len(recent), 6)
+        self.assertEqual(recent, full[-6:])
+
     def test_canonical_cost_keys_do_not_warn(self):
         cfg = {"backtest": {"topN": 5, "rebalanceDays": 3, "commissionRate": 0.0003,
                             "stampDutyRate": 0.0005, "slippageRate": 0.001}}
