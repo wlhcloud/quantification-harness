@@ -48,6 +48,9 @@ from .config_integrity import (  # noqa: F401
     list_fingerprints, record_fingerprint, write_snapshot,
 )
 from .factors import build_factors  # noqa: F401
+from .research import (  # noqa: F401
+    build_factor_registry, compute_factor_ic_stats, latest_factor_research,
+)
 
 
 # ---------------------------------------------------------------- 主流程
@@ -355,6 +358,7 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
     total_trades = 0
     total_stop_trades = 0
     total_corporate_action_adjustments = 0
+    total_cooldown_blocked_entries = 0
     all_tree_counts: list[int] = []
     trade_records: list[dict[str, Any]] = []
     effective_devices: set[str] = set()
@@ -470,6 +474,7 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
             total_trades += int(window_daily[-1].get("tradeCount", 0))
             total_stop_trades += int(window_daily[-1].get("stopTradeCount", 0))
             total_corporate_action_adjustments += int(window_daily[-1].get("corporateActionAdjustments", 0))
+            total_cooldown_blocked_entries += int(window_daily[-1].get("cooldownBlockedEntries", 0))
             for day_row in window_daily:
                 trade_records.extend(day_row.get("trades") or [])
         prev = daily_rows[-1]["nav"] if daily_rows else 1.0
@@ -585,6 +590,7 @@ def run_walkforward(factors_path: Path, market_path: Path, artifact_dir: Path, c
                "maxTrees": max(all_tree_counts) if all_tree_counts else 0,
                "nEstimatorsCap": n_estimators_cap,
                "treeNotes": tree_notes,
+               "cooldownBlockedEntries": total_cooldown_blocked_entries,
                "corporateActionAdjustments": total_corporate_action_adjustments}
 
     # 保存分窗口明细（收益集中度分析用）

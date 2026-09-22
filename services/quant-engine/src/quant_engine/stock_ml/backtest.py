@@ -331,6 +331,7 @@ def _run_window_backtest(frame: list[dict[str, Any]], model: Any, test_days: lis
     # 最小持有期（交易日）：新建仓不足该天数的持仓忽略"普通死叉"退出，但止损照常立即执行。
     # 目的只是消掉边缘反复交易，不阻止真正的趋势反转退出；0 = 关闭（与历史口径完全一致）。
     min_holding_days = max(0, int(timing_cfg.get("minHoldingDays", 0) or 0))
+    reentry_cooldown_days = max(0, int(timing_cfg.get("reentryCooldownDays", 0) or 0))
     if timing_enabled:
         _add_technical_timing_signals(
             bars, float(timing_cfg.get("volumeRatio", 2.0)),
@@ -345,6 +346,8 @@ def _run_window_backtest(frame: list[dict[str, Any]], model: Any, test_days: lis
     trade_count = 0
     stop_trade_count = 0
     corporate_action_adjustments = 0
+    cooldown_blocked_entries = 0
+    last_exit_index: dict[str, int] = {}
     for i, day in enumerate(test_days):
         # 持有天数按交易日递增：新的一天开始，账上每个仓位多持有一个交易日。
         for code in holdings:
@@ -443,6 +446,13 @@ def _run_window_backtest(frame: list[dict[str, Any]], model: Any, test_days: lis
                         golden = golden_enabled and recent_golden and (above_ma20 or not require_above_ma20)
                         breakout = breakout_enabled and bool(bar.get("volume_breakout"))
                         if not (golden or breakout):
+                            continue
+                        # 卖出后的 N 个完整交易日禁止重新买入同一股票。卖出发生在
+                        # 第 i 日时，i+1..i+N 被拦截，i+N+1 恢复资格。
+                        last_exit = last_exit_index.get(code)
+                        if (reentry_cooldown_days > 0 and last_exit is not None and
+                                i - last_exit <= reentry_cooldown_days):
+                            cooldown_blocked_entries += 1
                             continue
                         target.append(code)
                         buy_reasons[code] = ("golden_cross+volume_breakout" if golden and breakout
@@ -548,6 +558,7 @@ def _run_window_backtest(frame: list[dict[str, Any]], model: Any, test_days: lis
             holding_adj.pop(code, None)
             holding_age.pop(code, None)
             pending_sells.pop(code, None)
+            last_exit_index[code] = i
             if deferred_days > 0:
                 deferred_sell_days_total += deferred_days
                 max_deferred_sell_days = max(max_deferred_sell_days, deferred_days)
@@ -670,6 +681,7 @@ def _run_window_backtest(frame: list[dict[str, Any]], model: Any, test_days: lis
                       "deferredSellDays": deferred_sell_days_total,
                       "maxDeferredSellDays": max_deferred_sell_days,
                       "corporateActionAdjustments": corporate_action_adjustments})
+        daily[-1]["cooldownBlockedEntries"] = cooldown_blocked_entries
         progress(start_progress + (end_progress - start_progress) * (i + 1) / max(1, len(test_days)))
     if _include_cost_free and daily and any((commission, stamp, slip)):
         no_cost_cfg = dict(bt_cfg)

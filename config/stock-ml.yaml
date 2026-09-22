@@ -140,6 +140,8 @@ backtest:
     # 目的：只消掉边缘反复交易（v2 的换手 30.93 只需再降约 3%），不阻止真正的趋势反转退出。
     # 0 = 关闭（与历史口径完全一致）。
     minHoldingDays: 0
+    # 正式基线暂不启用；研究任务通过参数覆盖测试 3/5 个交易日。
+    reentryCooldownDays: 0
   # 成本口径（修复：原 transactionCostBps/slippageBps 从未被代码读取，配置静默失效）
   # 单边佣金万0.8（0.8bp）、卖出印花税5bp；滑点40bp单独计算。
   commissionRate: 0.00008

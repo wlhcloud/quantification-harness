@@ -110,6 +110,7 @@ class ConfigWarningTest(unittest.TestCase):
         self.assertFalse(out["backtest"]["technicalTiming"]["deathCrossRequireBelowMa20"])
         # 固化口径：最小持有期默认关闭（实测强制延长持有有害，Sharpe 1.129→0.273）。
         self.assertEqual(out["backtest"]["technicalTiming"]["minHoldingDays"], 0)
+        self.assertEqual(out["backtest"]["technicalTiming"]["reentryCooldownDays"], 0)
         # deviceType / cudaInProcess 必须在配置回显里可见（同步覆盖这两个键的后果最严重）
         self.assertEqual(out["model"]["deviceType"], "cpu")
         self.assertFalse(out["model"]["cudaInProcess"])

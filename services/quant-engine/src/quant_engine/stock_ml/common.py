@@ -17,6 +17,7 @@ FACTOR_COLUMNS = [
     "netprofitYoy", "debtToAssets", "currentRatio", "drawdown60",
     "volumeRatio", "volSurge3", "volSurge5", "amountRatio5",
     "distHigh20", "breakout60", "volPriceCorr20", "turnoverRatio5", "amplitude20",
+    "ma5Bias", "ma20Bias", "ma20Slope5", "rsi14", "macdDif", "macdDea", "macdHist", "bollingerPos20",
     "floatRatio", "psTtm", "dvTtm",
     "netMargin", "qSalesYoy", "assetsTurn", "roeYoy", "quickRatio",
 ]
@@ -46,11 +47,40 @@ CREATE TABLE IF NOT EXISTS stock_ml_factors (
   netprofitYoy REAL, debtToAssets REAL, currentRatio REAL, drawdown60 REAL,
   volumeRatio REAL, volSurge3 REAL, volSurge5 REAL, amountRatio5 REAL,
   distHigh20 REAL, breakout60 REAL, volPriceCorr20 REAL, turnoverRatio5 REAL,
-  amplitude20 REAL, floatRatio REAL, psTtm REAL, dvTtm REAL,
+  amplitude20 REAL, ma5Bias REAL, ma20Bias REAL, ma20Slope5 REAL,
+  rsi14 REAL, macdDif REAL, macdDea REAL, macdHist REAL, bollingerPos20 REAL,
+  floatRatio REAL, psTtm REAL, dvTtm REAL,
   netMargin REAL, qSalesYoy REAL, assetsTurn REAL, roeYoy REAL, quickRatio REAL,
   forward_3 REAL, forward_5 REAL, forward_20 REAL,
   PRIMARY KEY (trade_date, code)
 );
+CREATE TABLE IF NOT EXISTS stock_factor_registry (
+  factor_name TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  source_table TEXT NOT NULL,
+  value_column TEXT NOT NULL,
+  default_direction INTEGER NOT NULL DEFAULT 1,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  description TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stock_factor_ic_stats (
+  run_id TEXT NOT NULL,
+  factor_name TEXT NOT NULL,
+  label TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  observations INTEGER NOT NULL,
+  days INTEGER NOT NULL,
+  coverage REAL NOT NULL,
+  mean_rank_ic REAL,
+  icir REAL,
+  positive_rate REAL,
+  abs_mean_rank_ic REAL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, factor_name, label)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_factor_ic_stats_label ON stock_factor_ic_stats(label, computed_at);
 CREATE TABLE IF NOT EXISTS stock_walkforward_runs (
   run_id TEXT PRIMARY KEY,
   generated_at TEXT NOT NULL,
@@ -106,6 +136,8 @@ TECHNICAL_TIMING_CONFIG_KEYS = {
     "deathCross", "deathCrossRequireBelowMa20",
     # 最小持有期：不足该交易日数的持仓忽略普通死叉退出（止损不受约束）。0 = 关闭。
     "minHoldingDays",
+    # 卖出成交后的重新买入冷却期（交易日）；不延迟止损/死叉卖出。0 = 关闭。
+    "reentryCooldownDays",
 }
 
 EXECUTION_MODE = "same_day_close"
@@ -127,6 +159,8 @@ FACTOR_MIGRATIONS = {
     "volumeRatio": "REAL", "volSurge3": "REAL", "volSurge5": "REAL", "amountRatio5": "REAL",
     "distHigh20": "REAL", "breakout60": "REAL", "volPriceCorr20": "REAL", "turnoverRatio5": "REAL",
     "amplitude20": "REAL", "floatRatio": "REAL", "psTtm": "REAL", "dvTtm": "REAL",
+    "ma5Bias": "REAL", "ma20Bias": "REAL", "ma20Slope5": "REAL", "rsi14": "REAL",
+    "macdDif": "REAL", "macdDea": "REAL", "macdHist": "REAL", "bollingerPos20": "REAL",
     "netMargin": "REAL", "qSalesYoy": "REAL", "assetsTurn": "REAL", "roeYoy": "REAL", "quickRatio": "REAL",
     # 标签列也走幂等迁移：config/stock-ml.yaml 的 label 必须是本服务产出的列，
     # 原 forward_3 由脚本 compute_forward_3.py 在服务外维护（已移入 scripts/research_archive/），

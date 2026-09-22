@@ -328,6 +328,38 @@ class SameDayCloseBacktestTest(unittest.TestCase):
         self.assertEqual(len(sells), 1, "止损必须立即执行，不受最小持有期约束")
         self.assertTrue(sells[0]["reason"].startswith("initial_stop"))
 
+    def test_reentry_cooldown_blocks_only_rebuy_for_full_trading_days(self):
+        days = [f"2026100{i}" for i in range(1, 7)]
+        bars = {"A": {day: {"open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0,
+                             "volume": 100.0, "pct_chg": 0.0, "_timing_2_20": True,
+                             "ma20": 9.0, "golden_cross": i != 1,
+                             "golden_cross_age": 0 if i != 1 else None,
+                             "death_cross": i == 1, "volume_breakout": False}
+                      for i, day in enumerate(days)}}
+        frame = [{"trade_date": day, "code": "A", "momentum20": 2.0, "mktCap": 3e9}
+                 for day in days]
+
+        def run(cooldown: int):
+            return _run_window_backtest(
+                frame, _Model(), days, bars,
+                {"executionMode": "same_day_close", "snapshotTime": "14:40", "topN": 1,
+                 "initialCapital": 100_000, "commissionRate": 0.0,
+                 "stampDutyRate": 0.0, "slippageRate": 0.0,
+                 "initialStopLoss": 0.0, "trailingDrawdown": 0.0,
+                 "technicalTiming": {"enabled": True, "goldenCross": True,
+                                      "goldenCrossLookbackDays": 1, "volumeBreakout": False,
+                                      "requireAboveMa20": True, "deathCross": True,
+                                      "reentryCooldownDays": cooldown}},
+                lambda _: None, 0, 100)
+
+        base = run(0)
+        cooled = run(3)
+        base_buys = [t["tradeDate"] for row in base for t in row["trades"] if t["side"] == "buy"]
+        cooled_buys = [t["tradeDate"] for row in cooled for t in row["trades"] if t["side"] == "buy"]
+        self.assertEqual(base_buys, [days[0], days[2]])
+        self.assertEqual(cooled_buys, [days[0], days[5]])
+        self.assertEqual(cooled[-1]["cooldownBlockedEntries"], 3)
+
     def test_other_execution_modes_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "same_day_close"):
             _validate_execution_config({"executionMode": "next_day_open", "snapshotTime": "14:40"})
