@@ -1034,7 +1034,8 @@ def latest_candidates(factors_path: Path, model_id: str = ML_MODEL_ID, limit: in
             return {"modelId": model_id, "tradeDate": None, "count": 0, "items": []}
         trade_date = date_row["d"]
         rows = con.execute(
-            "SELECT c.trade_date, c.model_id, c.rank, c.code, c.score, c.reasons_json, c.computed_at "
+            "SELECT c.trade_date, c.model_id, c.rank, c.code, c.score, c.reasons_json, c.computed_at,"
+            "c.source_run_id "
             "FROM selection_candidates c JOIN stock_walkforward_runs r ON r.run_id=c.source_run_id "
             "WHERE c.model_id=? AND c.trade_date=? AND c.result_version>=2 AND r.is_published=1 "
             "ORDER BY c.rank LIMIT ?",
@@ -1056,8 +1057,96 @@ def latest_candidates(factors_path: Path, model_id: str = ML_MODEL_ID, limit: in
             "score": r["score"],
             "reasons": reasons,
             "computedAt": r["computed_at"],
+            "sourceRunId": r["source_run_id"],
         })
-    return {"modelId": model_id, "tradeDate": trade_date, "count": len(items), "items": items}
+    con = connect(factors_path)
+    try:
+        row = con.execute("SELECT MAX(trade_date) d FROM stock_ml_factors").fetchone()
+        latest_factor_date = row["d"] if row else None
+    finally:
+        con.close()
+    return {"modelId": model_id, "tradeDate": trade_date,
+            "latestFactorDate": latest_factor_date,
+            "stale": bool(latest_factor_date and trade_date < latest_factor_date),
+            "sourceRunId": items[0]["sourceRunId"] if items else None,
+            "count": len(items), "items": items}
+
+
+def refresh_published_candidates(factors_path: Path, config_path: Path,
+                                 trade_date: str | None = None) -> dict[str, Any]:
+    """用当前已发布模型刷新某个信号日的候选，不改变 published run。
+
+    完整 walk-forward 的发布门槛用于决定是否换模型，不应阻止已发布模型进行每日推理。
+    写入前仍严格检查该模型所需辅助因子的日期和字段覆盖率。
+    """
+    con = connect(factors_path)
+    try:
+        _ensure_walkforward_columns(con)
+        row = con.execute(
+            "SELECT run_id,config,model_path FROM stock_walkforward_runs "
+            "WHERE is_published=1 AND status='complete' ORDER BY generated_at DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+    if not row:
+        raise ValueError("没有已发布的 walk-forward 模型")
+    run_id = str(row["run_id"])
+    model_path = Path(str(row["model_path"] or ""))
+    if not model_path.exists():
+        raise FileNotFoundError(f"已发布模型文件不存在: {model_path}")
+    saved_cfg = json.loads(row["config"] or "{}")
+    # 历史 run 已固化其股票池、特征和持仓参数；只在旧记录缺字段时回退当前 YAML。
+    current_cfg = load_config(config_path)
+    cfg = _deep_merge(current_cfg, saved_cfg)
+    if not trade_date:
+        con = connect(factors_path)
+        try:
+            date_row = con.execute(
+                "SELECT MAX(trade_date) d FROM stock_ml_factors WHERE momentum20 IS NOT NULL").fetchone()
+            trade_date = date_row["d"] if date_row else None
+        finally:
+            con.close()
+    if not trade_date:
+        raise ValueError("stock_ml_factors 没有可用于推理的交易日")
+    required_features = list((saved_cfg.get("model") or {}).get("featuresOverride") or [])
+    freshness = aux_factor_freshness(
+        factors_path, trade_date, required_features=required_features)
+    if freshness["warnings"]:
+        raise ValueError("辅助因子质量检查未通过: " + "；".join(freshness["warnings"]))
+    top_n = int((saved_cfg.get("backtest") or {}).get("topN", 5))
+    publish_top_n = max(top_n, int(saved_cfg.get("publishTopN", 20)))
+    prediction = predict_with_model(
+        factors_path, model_path, cfg, top_n=publish_top_n, trade_date=trade_date)
+    if not prediction.get("items"):
+        raise ValueError(f"已发布模型在 {trade_date} 没有生成候选股")
+    computed_at = _now()
+    con = connect(factors_path)
+    try:
+        _ensure_selection_columns(con)
+        # 只替换当前模型当前日期；历史候选和 published 标记均保持不变。
+        con.execute("DELETE FROM selection_candidates WHERE model_id=? AND trade_date=?",
+                    (ML_MODEL_ID, trade_date))
+        for item in prediction["items"]:
+            rank = int(item["rank"])
+            score = round(float(item["score"]), 4)
+            holding = rank <= top_n
+            con.execute(
+                "INSERT INTO selection_candidates "
+                "(trade_date,model_id,rank,code,score,reasons_json,computed_at,source_run_id,result_version) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (trade_date, ML_MODEL_ID, rank, item["code"], round(score * 100, 2),
+                 json.dumps([{"factor": "ml",
+                              "label": "机器学习预测" + ("" if holding else "（候选）"),
+                              "score": score,
+                              "contribution": round(1.0 / top_n, 4) if holding else 0.0}],
+                            ensure_ascii=False),
+                 computed_at, run_id, 2))
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True, "runId": run_id, "tradeDate": trade_date,
+            "count": len(prediction["items"]), "publishedModelChanged": False,
+            "freshness": freshness}
 
 
 def get_model_config(config_path: Path) -> dict[str, Any]:

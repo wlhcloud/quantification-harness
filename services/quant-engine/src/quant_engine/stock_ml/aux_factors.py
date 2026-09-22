@@ -480,20 +480,31 @@ def aux_factor_freshness(factors_path: Path, signal_date: str | None, *,
     因为模型对 NaN 有处理，但必须让人知道特征缺了）。
     """
     feature_set = set(required_features or [])
-    tables = {}
-    if required_features is None or feature_set.intersection({
+    industry_features = {
         "industry_mom5", "industry_mom20", "industry_rank5", "industry_rank20",
         "industry_excess5", "industry_excess20", "industry_limit_count",
         "industry_limit_ratio", "industry_amount_chg", "stock_vs_industry_mom20",
-    }):
-        tables["stock_industry_factors"] = "行业轮动因子"
-    if required_features is None or feature_set.intersection({
+    }
+    money_flow_features = {
         "money_flow_1d", "money_flow_5d", "money_flow_ratio_5d", "volume_price_div",
         "turnover_surge", "large_move_volume", "close_position", "close_position_5d",
         "up_volume_ratio",
+    }
+    tables = {}
+    if required_features is None or feature_set.intersection({
+        *industry_features,
     }):
-        tables["stock_money_flow_factors"] = "资金流向因子"
+        tables["stock_industry_factors"] = (
+            "行业轮动因子", industry_features if required_features is None
+            else feature_set.intersection(industry_features))
+    if required_features is None or feature_set.intersection({
+        *money_flow_features,
+    }):
+        tables["stock_money_flow_factors"] = (
+            "资金流向因子", money_flow_features if required_features is None
+            else feature_set.intersection(money_flow_features))
     latest: dict[str, str | None] = {}
+    quality: dict[str, Any] = {}
     warnings: list[str] = []
     con = sqlite3.connect(f"file:{Path(factors_path).as_posix()}?mode=ro", uri=True, timeout=10)
     con.row_factory = sqlite3.Row
@@ -505,7 +516,7 @@ def aux_factor_freshness(factors_path: Path, signal_date: str | None, *,
             if has_ref:
                 row = con.execute("SELECT MAX(trade_date) d FROM stock_ml_factors").fetchone()
                 signal_date = row["d"] if row else None
-        for table, label in tables.items():
+        for table, (label, expected_features) in tables.items():
             exists = con.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
             if not exists:
@@ -521,6 +532,35 @@ def aux_factor_freshness(factors_path: Path, signal_date: str | None, *,
                 warnings.append(
                     f"{label}表 {table} 最新 {row['d']} 落后信号日 {signal_date}"
                     f"（可在计算面重跑 stock_industry_factors / stock_money_flow_factors）")
+            check_date = signal_date if signal_date and row["d"] >= signal_date else row["d"]
+            columns = {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+            missing_columns = sorted(expected_features - columns)
+            available = sorted(expected_features.intersection(columns))
+            q: dict[str, Any] = {"tradeDate": check_date, "rows": 0, "fields": {}}
+            if missing_columns:
+                warnings.append(f"{label}表 {table} 缺少必需字段：{', '.join(missing_columns)}")
+            if check_date:
+                count_row = con.execute(
+                    f"SELECT COUNT(*) n FROM {table} WHERE trade_date=?", (check_date,)).fetchone()
+                q["rows"] = int(count_row["n"] or 0)
+                if not q["rows"]:
+                    warnings.append(f"{label}表 {table} 在信号日 {check_date} 没有数据")
+                elif available:
+                    expressions = ",".join(
+                        f'SUM(CASE WHEN "{field}" IS NOT NULL THEN 1 ELSE 0 END) AS "{field}"'
+                        for field in available)
+                    coverage_row = con.execute(
+                        f"SELECT {expressions} FROM {table} WHERE trade_date=?", (check_date,)).fetchone()
+                    for field in available:
+                        non_null = int(coverage_row[field] or 0)
+                        coverage = non_null / q["rows"]
+                        q["fields"][field] = {"nonNull": non_null, "coverage": round(coverage, 6)}
+                        if coverage < 0.95:
+                            warnings.append(
+                                f"{label}字段 {field} 在 {check_date} 覆盖率仅 {coverage:.1%}"
+                                f"（{non_null}/{q['rows']}）")
+            quality[table] = q
     finally:
         con.close()
-    return {"signalDate": signal_date, "tables": latest, "warnings": warnings}
+    return {"signalDate": signal_date, "tables": latest, "quality": quality,
+            "warnings": warnings}

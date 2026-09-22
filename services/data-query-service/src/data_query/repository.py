@@ -430,7 +430,8 @@ class ReadOnlyRepository:
         date_subquery = "SELECT MAX(trade_date) FROM selection_candidates WHERE model_id=?"
         return db.execute(
             "SELECT c.trade_date tradeDate,c.model_id modelId,c.rank,c.code,"
-            "NULL name,NULL industry,NULL close,c.score,c.reasons_json reasons "
+            "NULL name,NULL industry,NULL close,c.score,c.reasons_json reasons,"
+            "c.computed_at computedAt,c.source_run_id sourceRunId "
             f"FROM {source} "
             f"WHERE c.model_id=? AND c.trade_date=({date_subquery}){scope} "
             "ORDER BY c.rank LIMIT ?",
@@ -468,6 +469,12 @@ class ReadOnlyRepository:
             raise ValueError(f"unknown selection model: {model}; available: {', '.join(config['models'])}")
         with self.connect("factors") as db:
             rows = self._selection_rows(db, model, limit)
+            has_ml_factors = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='stock_ml_factors'"
+            ).fetchone() is not None
+            latest_factor_row = db.execute(
+                "SELECT MAX(trade_date) d FROM stock_ml_factors"
+            ).fetchone() if model == "ml_walkforward" and has_ml_factors else None
         items: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
@@ -479,7 +486,14 @@ class ReadOnlyRepository:
                 item["reasons"] = []
             items.append(item)
         self._attach_security_names(items)
-        return {"model": {"id": model, **definition}, "count": len(items), "items": items}
+        signal_date = items[0].get("tradeDate") if items else None
+        latest_factor_date = latest_factor_row["d"] if latest_factor_row else None
+        return {"model": {"id": model, **definition},
+                "signalDate": signal_date,
+                "latestFactorDate": latest_factor_date,
+                "stale": bool(signal_date and latest_factor_date and signal_date < latest_factor_date),
+                "sourceRunId": items[0].get("sourceRunId") if items else None,
+                "count": len(items), "items": items}
 
     def backtest_latest(self) -> dict[str, Any]:
         with self.connect("backtest") as db:

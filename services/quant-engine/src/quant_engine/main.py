@@ -23,6 +23,7 @@ from .stock import sim as stock_sim
 from .stock import regime_analysis as stock_regime
 from .stock_ml import build_factors as stock_ml_build_factors, run_walkforward as stock_ml_run_walkforward, load_config as stock_ml_load_config
 from .stock_ml import latest_walkforward as stock_ml_latest_walkforward, latest_candidates as stock_ml_latest_candidates, list_walkforward as stock_ml_list_walkforward, publish_walkforward as stock_ml_publish_walkforward, delete_walkforward as stock_ml_delete_walkforward, update_walkforward_notes as stock_ml_update_walkforward_notes
+from .stock_ml import refresh_published_candidates as stock_ml_refresh_published_candidates
 from .stock_ml import get_model_config as stock_ml_get_model_config, get_feature_importance as stock_ml_get_feature_importance
 from .stock_ml import backtest_with_model as stock_ml_backtest_with_model, find_model_path_by_run_id as stock_ml_find_model_path
 from .stock_ml import predict_with_model as stock_ml_predict_with_model
@@ -439,10 +440,25 @@ async def stock_ml_backtest(request: Request) -> dict:
 
 @app.post("/api/v1/stock-ml/predict")
 async def stock_ml_predict(request: Request) -> dict:
-    """用指定模型（run_id或model_path）对最新交易日进行选股预测（同步；会写回 selection_candidates）"""
+    """用指定模型（run_id或model_path）进行只读选股预览。"""
     body = await request.json()
     try:
         return await run_in_threadpool(_run_stock_ml_predict, body)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/v1/stock-ml/candidates/refresh")
+async def stock_ml_candidates_refresh(request: Request) -> dict:
+    """使用当前 published 模型刷新正式候选；不训练、不切换模型版本。"""
+    body = await request.json()
+    try:
+        return await run_in_threadpool(
+            stock_ml_refresh_published_candidates,
+            settings.factors_path, settings.stock_ml_config_path,
+            body.get("tradeDate") or body.get("trade_date"))
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:

@@ -370,6 +370,15 @@ def _stock_ml_chain() -> None:
     if _stock_walkforward_stale():
         if not _submit_engine_job("stock_walkforward", parameters={"maxWindows": 6}, timeout_s=60 * 60):
             return
+    # 换模型与每日出信号是两件事：最近窗口/完整回测未过发布门槛时，仍应使用当前
+    # published 模型对最新因子日推理，否则 selection_candidates 会永久停在旧日期。
+    try:
+        refreshed = _request("POST", f"{ENGINE}/stock-ml/candidates/refresh", payload={})
+        print(f"[OK] 正式候选已刷新：{refreshed.get('tradeDate')} "
+              f"{refreshed.get('count')} 只，模型 {refreshed.get('runId')}", flush=True)
+    except (urllib.error.URLError, RuntimeError, ValueError) as exc:
+        print(f"[WARN] 正式候选刷新失败：{exc}（不推进模拟盘，避免使用旧信号）", flush=True)
+        return
     _advance_stock_sim()
 
 

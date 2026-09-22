@@ -91,11 +91,26 @@ class FreshnessTest(unittest.TestCase):
         con = sqlite3.connect(path)
         con.execute("CREATE TABLE stock_ml_factors(trade_date TEXT, code TEXT)")
         con.execute("INSERT INTO stock_ml_factors VALUES('20260911','000001.SZ')")
+        schemas = {
+            "stock_industry_factors": (
+                "trade_date TEXT, code TEXT, industry_mom5 REAL, industry_mom20 REAL, "
+                "industry_rank5 REAL, industry_rank20 REAL, industry_excess5 REAL, "
+                "industry_excess20 REAL, industry_limit_count REAL, industry_limit_ratio REAL, "
+                "industry_amount_chg REAL, stock_vs_industry_mom20 REAL"),
+            "stock_money_flow_factors": (
+                "trade_date TEXT, code TEXT, money_flow_1d REAL, money_flow_5d REAL, "
+                "money_flow_ratio_5d REAL, volume_price_div REAL, turnover_surge REAL, "
+                "large_move_volume REAL, close_position REAL, close_position_5d REAL, "
+                "up_volume_ratio REAL"),
+        }
         for table, latest in (("stock_industry_factors", industry), ("stock_money_flow_factors", money)):
             if latest is None:
                 continue
-            con.execute(f"CREATE TABLE {table}(trade_date TEXT, code TEXT)")
-            con.execute(f"INSERT INTO {table} VALUES(?,'000001.SZ')", (latest,))
+            con.execute(f"CREATE TABLE {table}({schemas[table]})")
+            column_count = len(con.execute(f"PRAGMA table_info({table})").fetchall())
+            con.execute(
+                f"INSERT INTO {table} VALUES({','.join('?' * column_count)})",
+                (latest, "000001.SZ", *([1.0] * (column_count - 2))))
         con.commit()
         con.close()
         return path
@@ -109,6 +124,22 @@ class FreshnessTest(unittest.TestCase):
     def test_no_warning_when_aligned(self):
         out = aux_factor_freshness(self._factors("20260911", "20260911"), None)
         self.assertEqual(out["warnings"], [])
+        self.assertEqual(
+            out["quality"]["stock_industry_factors"]["fields"]["industry_excess20"]["coverage"],
+            1.0)
+
+    def test_warns_when_latest_required_field_is_empty(self):
+        path = self._factors("20260911", "20260911")
+        con = sqlite3.connect(path)
+        con.execute("UPDATE stock_industry_factors SET industry_excess20=NULL")
+        con.commit()
+        con.close()
+        out = aux_factor_freshness(path, None, required_features=["industry_excess20"])
+        self.assertEqual(
+            out["quality"]["stock_industry_factors"]["fields"]["industry_excess20"]["coverage"],
+            0.0)
+        self.assertTrue(any("industry_excess20" in warning and "覆盖率仅" in warning
+                            for warning in out["warnings"]))
 
     def test_warns_when_table_missing(self):
         out = aux_factor_freshness(self._factors(None, "20260911"), None)

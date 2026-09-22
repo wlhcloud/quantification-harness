@@ -14,6 +14,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from quant_engine import stock_ml
 from quant_engine.stock import sim
@@ -122,6 +123,45 @@ class PublishedCandidatesTest(unittest.TestCase):
             con.commit(); con.close()
             out = stock_ml.latest_candidates(path)
             self.assertEqual([item["code"] for item in out["items"]], ["official"])
+
+    def test_refresh_uses_published_model_without_switching_run(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "factors.db"
+            model = Path(root) / "model.txt"
+            model.write_text("test", encoding="utf-8")
+            con = stock_ml.connect(path)
+            con.executescript(stock_ml.SCHEMA)
+            stock_ml._ensure_walkforward_columns(con)
+            stock_ml._ensure_selection_columns(con)
+            cfg = {"publishTopN": 2, "model": {"featuresOverride": []},
+                   "backtest": {"topN": 1}}
+            con.execute(
+                "INSERT INTO stock_walkforward_runs(run_id,generated_at,label,start_date,end_date,windows,"
+                "config,metrics,holdings,status,result_version,is_published,model_path) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("official", "2026-09-15T00:00:00Z", "forward_3", "20260101", "20260102", 1,
+                 __import__("json").dumps(cfg), "{}", '{"tradeDate":"20260102"}',
+                 "complete", 2, 1, str(model)))
+            con.commit(); con.close()
+            prediction = {"tradeDate": "20260918", "items": [
+                {"rank": 1, "code": "000001.SZ", "score": 1.2},
+                {"rank": 2, "code": "000002.SZ", "score": 0.8},
+            ]}
+            with mock.patch.object(stock_ml, "load_config", return_value={}), \
+                    mock.patch.object(stock_ml, "predict_with_model", return_value=prediction):
+                out = stock_ml.refresh_published_candidates(
+                    path, Path(root) / "config.yaml", trade_date="20260918")
+            self.assertFalse(out["publishedModelChanged"])
+            self.assertEqual(out["runId"], "official")
+            con = stock_ml.connect(path)
+            rows = con.execute(
+                "SELECT source_run_id,rank FROM selection_candidates ORDER BY rank").fetchall()
+            published = con.execute(
+                "SELECT run_id FROM stock_walkforward_runs WHERE is_published=1").fetchone()[0]
+            con.close()
+            self.assertEqual(published, "official")
+            self.assertEqual([(r["source_run_id"], r["rank"]) for r in rows],
+                             [("official", 1), ("official", 2)])
 
     def test_publish_gate_rejects_partial_or_weak_runs(self):
         good = {"windows": 24, "sharpe": 0.8, "excessReturn": 0.1, "maxDrawdown": -0.2}
