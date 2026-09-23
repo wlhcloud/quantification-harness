@@ -198,6 +198,20 @@ class BuilderSmokeTest(unittest.TestCase):
         con.close()
         self.assertIsNotNone(row)
 
+    def test_industry_excess_uses_latest_known_benchmark_when_index_lags(self):
+        con = sqlite3.connect(self.market)
+        dates = _dates(40)
+        con.execute("DELETE FROM index_daily_bars WHERE trade_date>?", (dates[-4],))
+        con.commit()
+        con.close()
+        build_industry_factors(self.market, self.factors, start_date=dates[0])
+        out = aux_factor_freshness(
+            self.factors, dates[-1], required_features=["industry_excess5", "industry_excess20"])
+        self.assertEqual(out["warnings"], [])
+        q = out["quality"]["stock_industry_factors"]["fields"]
+        self.assertEqual(q["industry_excess5"]["coverage"], 1.0)
+        self.assertEqual(q["industry_excess20"]["coverage"], 1.0)
+
     def test_builders_honour_cancellation(self):
         with self.assertRaises(RuntimeError):
             build_money_flow_factors(self.market, self.factors, cancelled=lambda: True)

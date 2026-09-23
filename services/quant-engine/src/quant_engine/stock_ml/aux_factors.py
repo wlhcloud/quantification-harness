@@ -133,14 +133,23 @@ def _compute_industry_factors(industry_map, bars, hs300, up_limits):
     )
     ind_daily['industry_amount_chg'] = (ind_daily['amount_ratio'] / ind_daily['amount_ratio_ma20'] - 1) * 100
     
-    # 合并沪深300
-    ind_daily = ind_daily.merge(hs300[['trade_date', 'hs300_pct']], on='trade_date', how='left')
-    
-    # 沪深300滚动收益
+    # 沪深300滚动收益。指数数据可能比个股日线晚到几个交易日（真实库曾出现
+    # daily_bars=20260918、000300.SH=20260911），直接按日期 left join 会让最新日
+    # industry_excess5/20 全空，进而阻断发布。这里仅对基准动量使用 asof 前向对齐：
+    # 用样本日之前最近一个已知基准值，不向未来取数，保持 PIT。
     hs300_sorted = hs300.sort_values('trade_date')
     hs300_sorted['hs300_mom5'] = (1 + hs300_sorted['hs300_pct']/100).rolling(5).apply(np.prod, raw=True) - 1
     hs300_sorted['hs300_mom20'] = (1 + hs300_sorted['hs300_pct']/100).rolling(20).apply(np.prod, raw=True) - 1
-    ind_daily = ind_daily.merge(hs300_sorted[['trade_date', 'hs300_mom5', 'hs300_mom20']], on='trade_date', how='left')
+    ind_daily['_trade_date_i'] = ind_daily['trade_date'].astype(int)
+    hs300_for_merge = hs300_sorted[['trade_date', 'hs300_pct', 'hs300_mom5', 'hs300_mom20']].copy()
+    hs300_for_merge['_trade_date_i'] = hs300_for_merge['trade_date'].astype(int)
+    ind_daily = pd.merge_asof(
+        ind_daily.sort_values('_trade_date_i'),
+        hs300_for_merge.drop(columns=['trade_date']).sort_values('_trade_date_i'),
+        on='_trade_date_i',
+        direction='backward',
+    ).sort_values(['industry', 'trade_date']).reset_index(drop=True)
+    ind_daily = ind_daily.drop(columns=['_trade_date_i'])
     
     # 行业超额收益
     ind_daily['industry_excess5'] = ind_daily['ind_mom5'] - ind_daily['hs300_mom5'] * 100
